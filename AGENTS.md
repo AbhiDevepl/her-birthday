@@ -21,7 +21,7 @@ Note: `AdminDashboard` authenticates via `/api/admin/me` and polls `/api/admin/v
 
 - Both backends use the SAME SQLite schema, keyed off `data.db`:
   - Local/VPS: `server.ts` opens the repo's `data.db` directly (writable, durable).
-  - Vercel: serverless filesystems are read-only, so `api/lib/db.ts` copies the committed `data.db` into a writable `/tmp/vercel-data.db` on each cold start and opens it with `node:sqlite`. Writes persist only for that function instance's lifetime; a fresh instance re-seeds from the committed `data.db` again. If `node:sqlite` is unavailable it falls back to in-memory storage — the API NEVER 503s. `vercel.json` pins runtime `nodejs22.x` and bundles `data.db` + `data/visitors.json` via `functions.includeFiles`. No env vars are required to deploy.
+  - Vercel: serverless filesystems are read-only, so `api/lib/db.ts` copies the committed `data.db` into a writable `/tmp/vercel-data.db` on each cold start and opens it with `node:sqlite`. Writes persist only for that function instance's lifetime; a fresh instance re-seeds from the committed `data.db` again. If `node:sqlite` is unavailable it falls back to in-memory storage — the API NEVER 503s. `vercel.json` pins `nodeVersion: 22.x` and bundles `data.db` + `data/visitors.json` via `functions.includeFiles`. No env vars are required to deploy.
 - `data/visitors.json` is legacy test data: auto-migrated into the SQLite table once, only if the table is empty (server.ts:62, and mirrored in `api/lib/db.ts`).
 - `server.ts` blocks direct HTTP requests to `*.db` / `*.sqlite` (server.ts:221).
 

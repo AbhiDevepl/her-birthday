@@ -1,9 +1,9 @@
 {
   "buildCommand": "vite build",
   "outputDirectory": "dist",
+  "nodeVersion": "22.x",
   "functions": {
     "api/**.ts": {
-      "runtime": "nodejs22.x",
       "includeFiles": "{data.db,data/visitors.json}"
     }
   },
