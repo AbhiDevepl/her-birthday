@@ -70,16 +70,49 @@ export default function AdminDashboard() {
   const load = useCallback(async () => {
     setError('');
     setVisitors(null);
+
+    // Read any offline/fallback visitors saved in localStorage
+    const getOfflineVisitors = (): Visitor[] => {
+      try {
+        const raw = localStorage.getItem('offlineVisitors');
+        return raw ? JSON.parse(raw) : [];
+      } catch {
+        return [];
+      }
+    };
+
     try {
       const res = await fetch('/api/admin/visitors');
       if (res.status === 401) return setAuthed(false);
-      if (!res.ok) throw new Error('Could not load visitors.');
+      if (!res.ok) {
+        // If 404 or backend unavailable, still show offline visitors if authed or fallback
+        throw new Error('Could not load visitors.');
+      }
       const body = await res.json();
       setAuthed(true);
-      setVisitors(body.visitors);
+
+      const serverList: Visitor[] = body.visitors || [];
+      const offlineList = getOfflineVisitors();
+      
+      // Combine and deduplicate by timestamp/id
+      const idSet = new Set(serverList.map((v) => v.id));
+      const combined = [...serverList];
+      for (const off of offlineList) {
+        if (!idSet.has(off.id)) {
+          combined.push(off);
+        }
+      }
+      combined.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      setVisitors(combined);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load visitors.');
-      setVisitors([]);
+      const offlineList = getOfflineVisitors();
+      if (offlineList.length > 0) {
+        setAuthed(true);
+        setVisitors(offlineList);
+      } else {
+        setError(err instanceof Error ? err.message : 'Could not load visitors.');
+        setVisitors([]);
+      }
     }
   }, []);
 

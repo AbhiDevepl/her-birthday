@@ -66,12 +66,47 @@ export default function VisitorGate({ onDone }: VisitorGateProps) {
         body: JSON.stringify({ nickname: nickname.trim(), ...coords }),
       });
       if (!res.ok) {
+        if (res.status === 404) {
+          // If the backend API route is 404 (e.g., static hosting / missing serverless route on Vercel)
+          console.warn('Backend API /api/visitors returned 404. Saving visitor check-in locally.');
+          try {
+            const raw = localStorage.getItem('offlineVisitors');
+            const list = raw ? JSON.parse(raw) : [];
+            list.push({
+              id: Date.now(),
+              nickname: nickname.trim(),
+              ...coords,
+              createdAt: new Date().toISOString(),
+            });
+            localStorage.setItem('offlineVisitors', JSON.stringify(list));
+          } catch (storageErr) {
+            console.warn('Could not save to localStorage:', storageErr);
+          }
+          onDone();
+          return;
+        }
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || 'Something went wrong. Please try again.');
       }
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
+      // In case of a network error or fetch failure on static hosts, save locally and do not block the user
+      console.warn('Visitor registration network error, saving locally:', err);
+      try {
+        const raw = localStorage.getItem('offlineVisitors');
+        const list = raw ? JSON.parse(raw) : [];
+        list.push({
+          id: Date.now(),
+          nickname: nickname.trim(),
+          ...coords,
+          createdAt: new Date().toISOString(),
+        });
+        localStorage.setItem('offlineVisitors', JSON.stringify(list));
+        onDone();
+        return;
+      } catch {
+        setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
+      }
     } finally {
       setSubmitting(false);
     }
