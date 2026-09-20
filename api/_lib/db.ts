@@ -3,6 +3,11 @@ import { PGlite } from '@electric-sql/pglite';
 
 const { Pool } = pg;
 
+// Supabase Supavisor pooler (IPv4). The direct host db.<ref>.supabase.co is
+// AAAA-only and Vercel functions have no IPv6 egress -> getaddrinfo ENOTFOUND.
+const FALLBACK_DATABASE_URL =
+  'postgresql://postgres.ixediwzgrjuzwubicmzt:CoNUNIEKrBll2R8m@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres';
+
 export interface VisitorRecord {
   id: number | string;
   nickname: string;
@@ -25,7 +30,7 @@ let pgliteInstance: PGlite | null = null;
 let dbInitialized = false;
 
 function getPgPool(): pg.Pool | null {
-  const databaseUrl = process.env.DATABASE_URL || "postgresql://postgres:CoNUNIEKrBll2R8m@db.ixediwzgrjuzwubicmzt.supabase.co:5432/postgres";
+  const databaseUrl = process.env.DATABASE_URL || FALLBACK_DATABASE_URL;
   if (!databaseUrl) {
     return null;
   }
@@ -107,5 +112,5 @@ export async function initDb(): Promise<void> {
 }
 
 export function isHostedPostgres(): boolean {
-  return Boolean(process.env.DATABASE_URL || "postgresql://postgres:CoNUNIEKrBll2R8m@db.ixediwzgrjuzwubicmzt.supabase.co:5432/postgres");
+  return Boolean(process.env.DATABASE_URL || FALLBACK_DATABASE_URL);
 }
