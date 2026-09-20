@@ -43,21 +43,21 @@ Happy Birthday Dabbu❤️🫶🏻`,
       </motion.div>
 
       {/* Main Crumpled Kraft Card */}
-      <div className="relative w-full kraft-bg crumpled-effect p-8 md:p-14 rounded-md scrapbook-shadow border-2 border-amber-800/10 overflow-hidden select-none">
+      <div className="relative w-full kraft-bg crumpled-effect p-8 md:p-14 rounded-md scrapbook-shadow border-2 border-amber-800/10 overflow-hidden select-none scrapbook-letter-lift cursor-default">
         {/* Ribbon */}
-        <div className="absolute top-4 left-4 text-5xl z-20 rotate-[-15deg] font-sans">
+        <div className="absolute top-4 left-4 text-5xl z-20 rotate-[-15deg] font-sans transition-transform duration-300 hover:rotate-[-5deg] hover:scale-110">
           🎀
         </div>
 
         {/* Wax seal */}
-        <div className="absolute top-4 right-4 w-12 h-12 rounded-full border border-dashed border-zinc-800/20 opacity-30 rotate-12 flex items-center justify-center">
+        <div className="absolute top-4 right-4 w-12 h-12 rounded-full border border-dashed border-zinc-800/20 opacity-30 rotate-12 flex items-center justify-center transition-all duration-300 hover:opacity-60 hover:rotate-45 hover:scale-110">
           <span className="text-sm font-sans font-black">
             Bhaktu
           </span>
         </div>
 
         {/* Lined paper */}
-        <div className="bg-[#FAF0E6] p-6 md:p-10 rounded-sm border border-orange-100 flex flex-col gap-4 relative">
+        <div className="bg-[#FAF0E6] p-6 md:p-10 rounded-sm border border-orange-100 flex flex-col gap-4 relative scrapbook-parchment-lift cursor-default">
           {/* Notebook lines */}
           <div className="absolute inset-0 ledger-lines opacity-10 pointer-events-none" />
 

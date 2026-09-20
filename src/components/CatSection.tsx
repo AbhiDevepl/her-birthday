@@ -22,12 +22,12 @@ export default function CatSection() {
       </div>
 
       {/* Centered Cute Kitten Card */}
-      <div className="relative group">
+      <div className="relative group transition-all duration-300 ease-out hover:-translate-y-2.5 hover:rotate-[-2deg] cursor-pointer">
         {/* Shadow Paper Base */}
-        <div className="absolute inset-0 bg-zinc-200 rounded-sm translate-x-2 translate-y-3 rotate-3 -z-10 opacity-60" />
+        <div className="absolute inset-0 bg-zinc-200 rounded-sm translate-x-2 translate-y-3 rotate-3 -z-10 opacity-60 transition-all duration-300 group-hover:translate-x-4 group-hover:translate-y-6 group-hover:rotate-4 group-hover:opacity-40" />
         
         {/* Main Polaroid Card Container */}
-        <div className="bg-white p-4 pb-12 rounded-sm polaroid-shadow border border-zinc-100/80 max-w-sm flex flex-col items-center">
+        <div className="bg-white p-4 pb-12 rounded-sm polaroid-shadow border border-zinc-100/80 max-w-sm flex flex-col items-center transition-shadow duration-300 group-hover:shadow-2xl">
           
           {/* Top Tape Fastener */}
           <div className="absolute -top-4 left-1/2 -translate-x-1/2 w-28 h-6 tape-strip z-10" />
@@ -59,7 +59,7 @@ export default function CatSection() {
         <motion.div
           animate={{ scale: [1, 1.1, 1], rotate: [0, 6, 0] }}
           transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
-          className="absolute -top-6 -right-6 text-5xl z-20 drop-shadow-md select-none"
+          className="absolute -top-6 -right-6 text-5xl z-20 drop-shadow-md select-none transition-transform duration-300 group-hover:scale-115 group-hover:rotate-12"
         >
           🎀
         </motion.div>

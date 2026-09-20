@@ -53,7 +53,13 @@ export default function FinalWish() {
         whileInView={{ opacity: 1, scale: 1 }}
         viewport={{ once: true }}
         transition={{ duration: 1 }}
-        className="relative max-w-2xl w-full bg-[#FAF0E6] p-8 md:p-12 border-2 border-dashed border-kraft/40 rounded-md scrapbook-shadow text-center z-10 select-none rotate-[-0.5deg]"
+        whileHover={{
+          y: -8,
+          rotate: -1.5,
+          scale: 1.01,
+          transition: { type: 'spring', stiffness: 320, damping: 22 }
+        }}
+        className="relative max-w-2xl w-full bg-[#FAF0E6] p-8 md:p-12 border-2 border-dashed border-kraft/40 rounded-md scrapbook-shadow text-center z-10 select-none rotate-[-0.5deg] transition-shadow duration-300 hover:shadow-2xl cursor-default group"
       >
         {/* Tape overlapping layout */}
         <div className="absolute -top-4 left-1/3 w-32 h-8 tape-strip z-20 opacity-80" />

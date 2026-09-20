@@ -87,17 +87,19 @@ export default function ScrapbookHero() {
               custom={rotation}
               variants={polaroidAnim}
               whileHover={{ 
-                scale: 1.05, 
-                rotate: rotation > 0 ? rotation + 2 : rotation - 2,
+                scale: 1.06, 
+                y: -12,
+                rotate: rotation > 0 ? rotation + 2.5 : rotation - 2.5,
                 zIndex: 30,
+                transition: { type: 'spring', stiffness: 350, damping: 22 }
               }}
-              className="relative mx-auto bg-white p-4 pb-10 w-full max-w-[280px] polaroid-shadow border border-zinc-100/50 flex flex-col items-center hover:cursor-pointer transition-shadow"
+              className="relative mx-auto bg-white p-4 pb-10 w-full max-w-[280px] polaroid-shadow border border-zinc-100/50 flex flex-col items-center hover:cursor-pointer transition-all duration-300 hover:shadow-2xl group"
             >
               {/* Placement Tape for tactile look */}
               {index === 0 && <div className="absolute -top-4 left-1/3 w-20 h-6 tape-strip z-10" />}
               {index === 1 && <div className="absolute -top-3 right-1/4 w-16 h-6 tape-strip-alt z-10" />}
               {index === 2 && (
-                <div className="absolute top-2 right-2 text-[#C41E3A] z-10 drop-shadow-sm scale-110">
+                <div className="absolute top-2 right-2 text-[#C41E3A] z-10 drop-shadow-sm scale-110 transition-transform duration-300 group-hover:scale-125 group-hover:rotate-12">
                   📌
                 </div>
               )}

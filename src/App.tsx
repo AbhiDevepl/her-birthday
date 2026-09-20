@@ -8,6 +8,7 @@ import PhotoCarousel from './components/PhotoCarousel';
 import FinalWish from './components/FinalWish';
 import VisitorGate from './components/VisitorGate';
 import AdminDashboard from './components/AdminDashboard';
+import BirthdayCountdown from './components/BirthdayCountdown';
 
 export default function App() {
   const [showScrapbook, setShowScrapbook] = useState(false);
@@ -69,8 +70,9 @@ export default function App() {
                   Bhaktu's Special Day 🎀
                 </span>
               </div>
-              <div className="flex gap-4 items-center">
-                <span className="text-sm font-sans tracking-widest text-[#D4A96A] font-semibold uppercase">
+              <div className="flex gap-2.5 sm:gap-4 items-center">
+                <BirthdayCountdown />
+                <span className="hidden sm:inline-block text-sm font-sans tracking-widest text-[#D4A96A] font-semibold uppercase px-2 py-1 rounded-full bg-kraft/10 border border-kraft/30">
                   23.09
                 </span>
                 <div className="w-8 h-8 rounded-full bg-[#C41E3A] shadow-sm flex items-center justify-center text-cream text-[11px] font-bold">

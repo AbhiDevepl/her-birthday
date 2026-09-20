@@ -92,7 +92,13 @@ export default function EntranceSplash({ onEnter }: EntranceSplashProps) {
         initial={{ scale: 0.9, opacity: 0, rotate: -3 }}
         animate={{ scale: 1, opacity: 1, rotate: -1 }}
         transition={{ delay: 0.2, duration: 0.8 }}
-        className="relative max-w-lg w-full bg-white p-8 md:p-12 polaroid-shadow rounded-sm border border-gray-100 flex flex-col items-center gap-6"
+        whileHover={{
+          y: -8,
+          rotate: 0.5,
+          scale: 1.02,
+          transition: { type: 'spring', stiffness: 320, damping: 22 }
+        }}
+        className="relative max-w-lg w-full bg-white p-8 md:p-12 polaroid-shadow rounded-sm border border-gray-100 flex flex-col items-center gap-6 transition-shadow duration-300 hover:shadow-2xl cursor-default"
       >
         {/* Tiny Red Pin */}
         <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-6 h-6 bg-crimson rounded-full shadow-inner flex items-center justify-center">

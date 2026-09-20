@@ -1,0 +1,6 @@
+{
+  "name": "Happy Birthday Bhaktu",
+  "description": "An interactive birthday scrapbook with guest sign-in, photo collage, letters, and celebratory wishes.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
