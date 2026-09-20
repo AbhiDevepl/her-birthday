@@ -5,5 +5,17 @@
     "latitude": 12.34,
     "longitude": 56.78,
     "createdAt": "2026-09-20T17:30:08.113Z"
+  },
+  {
+    "id": 1789926305298,
+    "nickname": "Bhaktu Fan",
+    "latitude": 18.5204,
+    "longitude": 73.8567,
+    "accuracy": 15,
+    "timestamp": "2026-09-20T17:30:00.000Z",
+    "createdAt": "2026-09-20T17:45:05.298Z",
+    "address": "Kasba Peth, Pune, Pune City Subdistrict, Pune District, Maharashtra, 411001, India",
+    "city": "Pune",
+    "country": "India"
   }
 ]

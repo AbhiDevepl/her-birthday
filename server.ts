@@ -18,10 +18,62 @@ interface Visitor {
   nickname: string;
   latitude: number;
   longitude: number;
+  accuracy?: number;
+  timestamp?: string;
+  address?: string;
+  city?: string;
+  country?: string;
   createdAt: string;
 }
 
 const visitorsMap = new Map<string, Visitor>();
+const geocodeCache = new Map<string, { displayName: string; city: string; country: string }>();
+
+async function resolveReverseGeocode(lat: number, lon: number): Promise<{ displayName: string; city: string; country: string } | null> {
+  const cacheKey = `${lat.toFixed(3)},${lon.toFixed(3)}`;
+  const cached = geocodeCache.get(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3500);
+
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=14`,
+      {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'BirthdayScrapbookApp/1.0',
+          'Accept-Language': 'en',
+        },
+      }
+    );
+    clearTimeout(timeoutId);
+
+    if (!response.ok) return null;
+    const data = await response.json();
+    const address = data.address || {};
+    const city =
+      address.city ||
+      address.town ||
+      address.village ||
+      address.suburb ||
+      address.municipality ||
+      address.county ||
+      '';
+    const country = address.country || '';
+    const displayName = data.display_name || (city ? `${city}, ${country}` : country) || '';
+    const result = { displayName, city, country };
+    geocodeCache.set(cacheKey, result);
+    if (geocodeCache.size > 1000) {
+      const firstKey = geocodeCache.keys().next().value;
+      if (firstKey) geocodeCache.delete(firstKey);
+    }
+    return result;
+  } catch {
+    return null;
+  }
+}
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DATA_FILE = path.join(DATA_DIR, 'visitors.json');
@@ -103,7 +155,24 @@ async function startServer() {
   app.use(cookieParser());
 
   // API Routes
-  app.post('/api/visitors', (req: Request, res: Response) => {
+  app.get('/api/reverse-geocode', async (req: Request, res: Response) => {
+    const lat = Number(req.query.latitude ?? req.query.lat);
+    const lon = Number(req.query.longitude ?? req.query.lon);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      res.status(400).json({ error: 'Valid latitude and longitude required' });
+      return;
+    }
+
+    const geo = await resolveReverseGeocode(lat, lon);
+    if (geo) {
+      res.json({ ok: true, data: geo });
+    } else {
+      res.json({ ok: false, error: 'Reverse geocode unavailable' });
+    }
+  });
+
+  app.post('/api/visitors', async (req: Request, res: Response) => {
     const body = req.body || {};
     const name =
       typeof body.nickname === 'string'
@@ -111,6 +180,13 @@ async function startServer() {
         : '';
     const lat = Number(body.latitude);
     const lon = Number(body.longitude);
+    const accuracy = Number.isFinite(Number(body.accuracy))
+      ? Math.round(Number(body.accuracy))
+      : undefined;
+    const clientTimestamp =
+      typeof body.timestamp === 'string' && !isNaN(Date.parse(body.timestamp))
+        ? body.timestamp
+        : undefined;
 
     if (!name || name.length > 60) {
       res.status(400).json({ error: 'Nickname is required (max 60 characters).' });
@@ -131,8 +207,18 @@ async function startServer() {
       nickname: name,
       latitude: lat,
       longitude: lon,
+      accuracy,
+      timestamp: clientTimestamp,
       createdAt,
     };
+
+    // Attempt reverse geocoding
+    const geo = await resolveReverseGeocode(lat, lon);
+    if (geo) {
+      record.address = geo.displayName;
+      record.city = geo.city;
+      record.country = geo.country;
+    }
 
     visitorsMap.set(`${record.id}`, record);
     persistVisitors();

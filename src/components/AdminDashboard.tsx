@@ -5,6 +5,11 @@ interface Visitor {
   nickname: string;
   latitude: number;
   longitude: number;
+  accuracy?: number;
+  timestamp?: string;
+  address?: string;
+  city?: string;
+  country?: string;
   createdAt: string;
 }
 
@@ -211,8 +216,9 @@ export default function AdminDashboard() {
               <thead className="bg-[#FAF0E6] text-kraft uppercase text-xs tracking-widest">
                 <tr>
                   <th className="px-4 py-3">Nickname</th>
-                  <th className="px-4 py-3">Latitude</th>
-                  <th className="px-4 py-3">Longitude</th>
+                  <th className="px-4 py-3">Coordinates</th>
+                  <th className="px-4 py-3">Accuracy</th>
+                  <th className="px-4 py-3">Address / Area</th>
                   <th className="px-4 py-3">Date</th>
                   <th className="px-4 py-3" />
                 </tr>
@@ -220,18 +226,35 @@ export default function AdminDashboard() {
               <tbody>
                 {visitors.map((v) => (
                   <tr key={v.id} className="border-t border-kraft/20">
-                    <td className="px-4 py-3 font-semibold">{v.nickname}</td>
-                    <td className="px-4 py-3">{v.latitude.toFixed(4)}</td>
-                    <td className="px-4 py-3">{v.longitude.toFixed(4)}</td>
-                    <td className="px-4 py-3 whitespace-nowrap">{new Date(v.createdAt).toLocaleString()}</td>
+                    <td className="px-4 py-3 font-semibold text-charcoal">{v.nickname}</td>
+                    <td className="px-4 py-3 font-mono text-xs">
+                      {v.latitude.toFixed(4)}, {v.longitude.toFixed(4)}
+                    </td>
+                    <td className="px-4 py-3 text-xs">
+                      {v.accuracy != null ? (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px]">
+                          ±{v.accuracy}m
+                        </span>
+                      ) : (
+                        <span className="text-on-surface-variant/60">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-charcoal max-w-[200px] truncate" title={v.address || ''}>
+                      {v.city && v.country
+                        ? `${v.city}, ${v.country}`
+                        : v.address || <span className="text-on-surface-variant/60">—</span>}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-xs text-on-surface-variant">
+                      {new Date(v.createdAt).toLocaleString()}
+                    </td>
                     <td className="px-4 py-3">
                       <a
                         href={`https://www.google.com/maps?q=${v.latitude},${v.longitude}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="font-semibold text-crimson underline whitespace-nowrap"
+                        className="font-semibold text-crimson underline whitespace-nowrap hover:text-dark-red text-xs"
                       >
-                        View Location
+                        View Map
                       </a>
                     </td>
                   </tr>

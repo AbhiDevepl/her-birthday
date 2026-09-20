@@ -5,6 +5,9 @@ interface Visitor {
   nickname: string;
   latitude: number;
   longitude: number;
+  accuracy?: number;
+  timestamp?: string;
+  address?: string;
   createdAt: string;
 }
 
@@ -41,6 +44,8 @@ export default async function handler(req: any, res: any) {
           : '';
       const lat = Number(body.latitude);
       const lon = Number(body.longitude);
+      const accuracy = Number.isFinite(Number(body.accuracy)) ? Math.round(Number(body.accuracy)) : undefined;
+      const clientTimestamp = typeof body.timestamp === 'string' ? body.timestamp : undefined;
 
       if (!name || name.length > 60) {
         res.status(400).json({ error: 'Nickname is required (max 60 characters).' });
@@ -60,6 +65,8 @@ export default async function handler(req: any, res: any) {
         nickname: name,
         latitude: lat,
         longitude: lon,
+        accuracy,
+        timestamp: clientTimestamp,
         createdAt: new Date().toISOString(),
       };
 
