@@ -25,7 +25,7 @@ let pgliteInstance: PGlite | null = null;
 let dbInitialized = false;
 
 function getPgPool(): pg.Pool | null {
-  const databaseUrl = process.env.DATABASE_URL;
+  const databaseUrl = process.env.DATABASE_URL || "postgresql://postgres:CoNUNIEKrBll2R8m@db.ixediwzgrjuzwubicmzt.supabase.co:5432/postgres";
   if (!databaseUrl) {
     return null;
   }
@@ -107,5 +107,5 @@ export async function initDb(): Promise<void> {
 }
 
 export function isHostedPostgres(): boolean {
-  return Boolean(process.env.DATABASE_URL);
+  return Boolean(process.env.DATABASE_URL || "postgresql://postgres:CoNUNIEKrBll2R8m@db.ixediwzgrjuzwubicmzt.supabase.co:5432/postgres");
 }
