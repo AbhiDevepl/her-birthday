@@ -1,32 +1,21 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { MapPin, Loader2, AlertCircle, AlertTriangle, RefreshCw } from 'lucide-react';
+import { AlertCircle, AlertTriangle, RefreshCw } from 'lucide-react';
 import { useLocation } from '../hooks/useLocation';
 
 interface VisitorGateProps {
   onDone: () => void;
 }
 
-// Local cache for reverse geocoded coordinates to prevent redundant network calls
-const addressCache = new Map<string, string>();
-
 export default function VisitorGate({ onDone }: VisitorGateProps) {
   const [nickname, setNickname] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
-  const [resolvedAddress, setResolvedAddress] = useState<string | null>(null);
 
-  // Hook handles: permissions, watchPosition, getCurrentPosition, cleanup, jitter filtering
   const {
     location,
-    latitude,
-    longitude,
-    accuracy,
-    timestamp,
     loading: locating,
     errorType,
-    isTracking,
-    isPoorAccuracy,
     retry,
   } = useLocation({
     autoStart: true,
@@ -37,64 +26,30 @@ export default function VisitorGate({ onDone }: VisitorGateProps) {
     accuracyThresholdMeters: 5000,
   });
 
-  const lastGeocodedKeyRef = useRef<string>('');
-
-  // Reverse geocoding via backend proxy (throttled & cached, no frontend API keys)
-  useEffect(() => {
-    if (!latitude || !longitude) return;
-
-    const key = `${latitude.toFixed(3)},${longitude.toFixed(3)}`;
-    if (key === lastGeocodedKeyRef.current) return;
-    lastGeocodedKeyRef.current = key;
-
-    if (addressCache.has(key)) {
-      setResolvedAddress(addressCache.get(key) || null);
-      return;
-    }
-
-    const abortController = new AbortController();
-    fetch(`/api/reverse-geocode?latitude=${latitude}&longitude=${longitude}`, {
-      signal: abortController.signal,
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data?.ok && data?.data) {
-          const formatted =
-            data.data.city && data.data.country
-              ? `${data.data.city}, ${data.data.country}`
-              : data.data.displayName || data.data.country || '';
-          if (formatted) {
-            addressCache.set(key, formatted);
-            setResolvedAddress(formatted);
-          }
-        }
-      })
-      .catch(() => {
-        // Reverse geocode failure is non-blocking
-      });
-
-    return () => abortController.abort();
-  }, [latitude, longitude]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setFormError('');
 
-    if (!nickname.trim()) {
+    const trimmedNickname = nickname.trim();
+
+    if (!trimmedNickname) {
       setFormError('Please enter your nickname to continue.');
       return;
     }
 
     if (!location) {
-      setFormError('Location permission is required to continue. Please allow location access and try again.');
+      setFormError(
+        'Location permission is required to continue. Please allow location access and try again.'
+      );
       return;
     }
 
     if (submitting) return;
+
     setSubmitting(true);
 
     const payload = {
-      nickname: nickname.trim(),
+      nickname: trimmedNickname,
       latitude: location.latitude,
       longitude: location.longitude,
       accuracy: location.accuracy,
@@ -104,21 +59,29 @@ export default function VisitorGate({ onDone }: VisitorGateProps) {
     try {
       const res = await fetch('/api/visitors', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify(payload),
       });
 
       const body = await res.json().catch(() => ({}));
+
       if (!res.ok) {
-        setFormError(body.error || 'Server rejected registration. Please try again.');
+        setFormError(
+          body?.error || 'Server rejected registration. Please try again.'
+        );
         return;
       }
 
       sessionStorage.setItem('visitor_registered', 'true');
       onDone();
-    } catch (err: any) {
-      console.warn('Visitor registration network error:', err);
-      setFormError('Unable to connect to the visitor registration service. Please verify your connection and try again.');
+    } catch (error) {
+      console.warn('Visitor registration network error:', error);
+
+      setFormError(
+        'Unable to connect to the visitor registration service. Please verify your connection and try again.'
+      );
     } finally {
       setSubmitting(false);
     }
@@ -133,24 +96,31 @@ export default function VisitorGate({ onDone }: VisitorGateProps) {
         transition={{ duration: 0.7 }}
         className="relative max-w-md w-full bg-white p-8 md:p-10 polaroid-shadow rounded-sm border border-gray-100 flex flex-col gap-5"
       >
+        {/* Decorative pin */}
         <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-6 h-6 bg-crimson rounded-full shadow-inner flex items-center justify-center">
           <div className="w-1.5 h-1.5 bg-white/70 rounded-full" />
         </div>
 
+        {/* Heading */}
         <h1 className="font-cursive text-4xl md:text-5xl text-crimson font-bold text-center leading-none mt-2">
           Before you open it ✨
         </h1>
+
         <p className="font-serif text-center text-on-surface-variant">
           Sign the guest book to unwrap the surprise 🎀
         </p>
 
         <div className="w-full h-px bg-gradient-to-r from-transparent via-kraft/40 to-transparent" />
 
-        {/* Nickname Input */}
+        {/* Nickname */}
         <div className="flex flex-col gap-2">
-          <label htmlFor="nickname" className="font-sans text-xs uppercase tracking-widest text-kraft font-semibold">
+          <label
+            htmlFor="nickname"
+            className="font-sans text-xs uppercase tracking-widest text-kraft font-semibold"
+          >
             Enter your nickname
           </label>
+
           <input
             id="nickname"
             name="nickname"
@@ -159,67 +129,61 @@ export default function VisitorGate({ onDone }: VisitorGateProps) {
             maxLength={60}
             autoComplete="nickname"
             value={nickname}
-            onChange={(e) => setNickname(e.target.value)}
+            onChange={(e) => {
+              setNickname(e.target.value);
+              if (formError) setFormError('');
+            }}
             placeholder="e.g. Bhaktu"
             className="font-serif text-lg px-4 py-3 bg-[#FAF0E6] border border-dashed border-kraft/60 rounded-sm outline-none focus:border-crimson focus:ring-2 focus:ring-crimson/20"
           />
         </div>
-            </div>
-              <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 font-mono text-[11px] text-emerald-800/90 pt-1 border-t border-emerald-200/50">
-                <div>
-                  Latitude: <span className="font-semibold">{latitude?.toFixed(4)}</span>
-                </div>
-                <div>
-                  Longitude: <span className="font-semibold">{longitude?.toFixed(4)}</span>
-                </div>
-                <div className="col-span-2">
-                  Accuracy: <span className="font-semibold">{accuracy} meters</span>
-                </div>
-                {resolvedAddress && (
-                  <div className="col-span-2 font-sans text-[11px] text-emerald-900 mt-0.5">
-                    Near: <span className="font-semibold">{resolvedAddress}</span>
-                  </div>
-                )}
-              </div>
-              {isPoorAccuracy && (
-                <p className="text-[10px] text-amber-700 mt-0.5">
-                  Note: Approximate GPS accuracy ({accuracy}m).
+
+        {/* Location status - intentionally does NOT expose coordinates/address */}
+        {!location && errorType === 'PERMISSION_DENIED' && (
+          <div className="p-3 rounded-sm bg-rose-50 border border-rose-200 text-rose-900 font-sans text-xs flex flex-col gap-2">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-crimson shrink-0 mt-0.5" />
+
+              <div className="flex flex-col gap-0.5">
+                <p className="font-semibold text-crimson">
+                  error cant open
                 </p>
-              )}
-            </div>
-          )}
 
-          {!location && errorType === 'PERMISSION_DENIED' && (
-            <div className="p-3 rounded-sm bg-rose-50 border border-rose-200 text-rose-900 font-sans text-xs flex flex-col gap-2">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-crimson shrink-0 mt-0.5" />
-                <div className="flex flex-col gap-0.5">
-                  <p className="font-semibold text-crimson">Location permission is disabled.</p>
-                  <p className="text-rose-800/90 leading-relaxed">
-                    Enable location access in your browser settings and try again.
-                  </p>
-                </div>
+                <p className="text-rose-800/90 leading-relaxed">
+                 error cant open
+                </p>
               </div>
-              <button
-                type="button"
-                onClick={retry}
-                className="self-start flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-crimson border border-crimson/30 hover:bg-crimson/10 rounded-xs transition-colors cursor-pointer"
-              >
-                <RefreshCw className="w-3 h-3" />
-                Try again
-              </button>
             </div>
-          )}
 
-          {!location && (errorType === 'POSITION_UNAVAILABLE' || errorType === 'TIMEOUT') && (
+            <button
+              type="button"
+              onClick={retry}
+              className="self-start flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-crimson border border-crimson/30 hover:bg-crimson/10 rounded-xs transition-colors cursor-pointer"
+            >
+              <RefreshCw className="w-3 h-3" />
+              Try again
+            </button>
+          </div>
+        )}
+
+        {!location &&
+          (errorType === 'POSITION_UNAVAILABLE' ||
+            errorType === 'TIMEOUT') && (
             <div className="p-3 rounded-sm bg-amber-50 border border-amber-200 text-amber-900 font-sans text-xs flex flex-col gap-2">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+
                 <div className="flex flex-col gap-0.5">
-                  <p className="font-semibold text-amber-900">Unable to determine your current location.</p>
-                  <p className="text-amber-800/90">Please check your device location settings.</p>
+                  <p className="font-semibold text-amber-900">
+                    Unable to determine your location.
+                  </p>
+
+                  <p className="text-amber-800/90">
+                    Please check your device location settings and try again.
+                  </p>
                 </div>
               </div>
+
               <button
                 type="button"
                 onClick={retry}
@@ -231,27 +195,46 @@ export default function VisitorGate({ onDone }: VisitorGateProps) {
             </div>
           )}
 
-          {!location && (errorType === 'UNSUPPORTED' || errorType === 'INSECURE_CONTEXT') && (
+        {!location &&
+          (errorType === 'UNSUPPORTED' ||
+            errorType === 'INSECURE_CONTEXT') && (
             <div className="p-3 rounded-sm bg-zinc-100 border border-zinc-300 text-zinc-800 font-sans text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-zinc-600 shrink-0" />
+
               <span>
                 {errorType === 'INSECURE_CONTEXT'
-                  ? 'Location tracking requires a secure HTTPS connection.'
-                  : 'Location tracking is not supported by this browser.'}
+                  ? 'Location access requires a secure HTTPS connection.'
+                  : 'Location access is not supported by this browser.'}
               </span>
             </div>
           )}
-        </div>
 
+        {/* Optional loading state */}
+        {locating && !location && (
+          <div className="text-center text-xs text-gray-500 font-sans">
+            Preparing your guest book entry…
+          </div>
+        )}
+
+        {/* Form error */}
         {formError && (
-          <p role="alert" className="font-sans text-sm text-dark-red bg-blush/30 border border-dark-red/30 rounded-sm px-3 py-2 whitespace-pre-line">
+          <p
+            role="alert"
+            className="font-sans text-sm text-dark-red bg-blush/30 border border-dark-red/30 rounded-sm px-3 py-2 whitespace-pre-line"
+          >
             {formError}
           </p>
         )}
 
+        {/* Submit */}
         <button
           type="submit"
-          disabled={submitting || locating || !nickname.trim() || !location}
+          disabled={
+            submitting ||
+            locating ||
+            !nickname.trim() ||
+            !location
+          }
           className="font-cursive text-2xl bg-radial from-[#C41E3A] to-[#8B0000] text-cream font-bold py-3 rounded-sm shadow-lg disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer transition-transform duration-200 hover:scale-[1.01]"
         >
           {submitting ? 'Please wait…' : 'Continue'}
