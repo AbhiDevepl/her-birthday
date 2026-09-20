@@ -108,8 +108,8 @@ export default function VisitorGate({ onDone }: VisitorGateProps) {
         body: JSON.stringify(payload),
       });
 
+      const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
         setFormError(body.error || 'Server rejected registration. Please try again.');
         return;
       }
@@ -118,21 +118,7 @@ export default function VisitorGate({ onDone }: VisitorGateProps) {
       onDone();
     } catch (err: any) {
       console.warn('Visitor registration network error:', err);
-      // If network fails (e.g. offline preview), persist locally so user isn't permanently blocked, but notify
-      try {
-        const raw = localStorage.getItem('offlineVisitors');
-        const list = raw ? JSON.parse(raw) : [];
-        list.push({
-          id: Date.now(),
-          ...payload,
-          address: resolvedAddress || undefined,
-          createdAt: new Date().toISOString(),
-        });
-        localStorage.setItem('offlineVisitors', JSON.stringify(list));
-        onDone();
-      } catch {
-        setFormError('Unable to connect to the server. Please check your internet connection and try again.');
-      }
+      setFormError('Unable to connect to the visitor registration service. Please verify your connection and try again.');
     } finally {
       setSubmitting(false);
     }

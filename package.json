@@ -4,32 +4,29 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
-    "start": "node dist/server.cjs",
-    "preview": "vite preview",
+    "dev": "vite --host 0.0.0.0 --port 3000",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 3000",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "canvas-confetti": "^1.9.4",
-    "cookie-parser": "^1.4.7",
-    "express": "^5.2.1",
     "lucide-react": "^1.47.0",
     "motion": "^12.23.24",
+    "pg": "^8.23.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.14",
     "@types/canvas-confetti": "^1.9.0",
-    "@types/cookie-parser": "^1.4.10",
-    "@types/express": "^5.0.6",
     "@types/node": "^22.14.0",
+    "@types/pg": "^8.23.1",
+    "@vercel/node": "^13.0.1",
     "@vitejs/plugin-react": "^5.0.4",
-    "esbuild": "^0.28.2",
     "tailwindcss": "^4.1.14",
-    "tsx": "^4.23.15",
     "typescript": "~5.8.2",
     "vite": "^6.2.3"
   }
