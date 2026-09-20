@@ -40,18 +40,29 @@ export default async function handler(req: any, res: any) {
 
     const data = await response.json();
     const address = data.address || {};
+    const area =
+      address.suburb ||
+      address.neighbourhood ||
+      address.quarter ||
+      address.residential ||
+      address.commercial ||
+      address.hamlet ||
+      '';
     const city =
       address.city ||
       address.town ||
       address.village ||
-      address.suburb ||
       address.municipality ||
       address.county ||
       '';
+    const state = address.state || address.province || address.region || '';
     const country = address.country || '';
-    const displayName = data.display_name || (city ? `${city}, ${country}` : country) || '';
+    const displayName =
+      data.display_name ||
+      (city ? `${city}${state ? `, ${state}` : ''}, ${country}` : country) ||
+      '';
 
-    res.json({ ok: true, data: { displayName, city, country } });
+    res.json({ ok: true, data: { displayName, area, city, state, country } });
   } catch (err: any) {
     res.json({ ok: false, error: err?.message || 'Failed to fetch reverse geocode' });
   }

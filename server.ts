@@ -3,6 +3,7 @@ import cookieParser from 'cookie-parser';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { createServer as createViteServer } from 'vite';
 
 const PORT = 3000;
@@ -13,7 +14,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'om1234';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'change-me';
 const COOKIE_NAME = 'admin_session';
 
-interface Visitor {
+export interface Visitor {
   id: number;
   nickname: string;
   latitude: number;
@@ -21,15 +22,95 @@ interface Visitor {
   accuracy?: number;
   timestamp?: string;
   address?: string;
+  area?: string;
   city?: string;
+  state?: string;
   country?: string;
+  user_agent?: string;
+  ip_address?: string;
   createdAt: string;
 }
 
-const visitorsMap = new Map<string, Visitor>();
-const geocodeCache = new Map<string, { displayName: string; city: string; country: string }>();
+// ---------------------------------------------------------------------------
+// Database: SQLite (data.db)
+// ---------------------------------------------------------------------------
+const DB_PATH = path.join(process.cwd(), 'data.db');
+const db = new DatabaseSync(DB_PATH);
 
-async function resolveReverseGeocode(lat: number, lon: number): Promise<{ displayName: string; city: string; country: string } | null> {
+// Initialize schema
+db.exec(`
+  CREATE TABLE IF NOT EXISTS visitors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nickname TEXT NOT NULL,
+    latitude REAL NOT NULL,
+    longitude REAL NOT NULL,
+    accuracy REAL,
+    timestamp TEXT,
+    address TEXT,
+    area TEXT,
+    city TEXT,
+    state TEXT,
+    country TEXT,
+    user_agent TEXT,
+    ip_address TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_visitors_created_at ON visitors(created_at DESC);
+`);
+
+// Migrate any legacy data/visitors.json if database table is empty
+try {
+  const countRow = db.prepare('SELECT COUNT(*) as cnt FROM visitors').get() as { cnt: number } | undefined;
+  if (!countRow || countRow.cnt === 0) {
+    const legacyFile = path.join(process.cwd(), 'data', 'visitors.json');
+    if (fs.existsSync(legacyFile)) {
+      const raw = fs.readFileSync(legacyFile, 'utf-8');
+      const items = JSON.parse(raw);
+      if (Array.isArray(items) && items.length > 0) {
+        const insertStmt = db.prepare(`
+          INSERT INTO visitors (nickname, latitude, longitude, accuracy, timestamp, address, area, city, state, country, user_agent, ip_address, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const item of items) {
+          if (item && item.nickname && Number.isFinite(item.latitude) && Number.isFinite(item.longitude)) {
+            insertStmt.run(
+              String(item.nickname),
+              Number(item.latitude),
+              Number(item.longitude),
+              item.accuracy != null ? Number(item.accuracy) : null,
+              item.timestamp ? String(item.timestamp) : null,
+              item.address ? String(item.address) : null,
+              item.area ? String(item.area) : null,
+              item.city ? String(item.city) : null,
+              item.state ? String(item.state) : null,
+              item.country ? String(item.country) : null,
+              item.user_agent ? String(item.user_agent) : null,
+              item.ip_address ? String(item.ip_address) : null,
+              item.createdAt ? String(item.createdAt) : new Date().toISOString()
+            );
+          }
+        }
+      }
+    }
+  }
+} catch (e) {
+  console.warn('[DB] Legacy migration check notice:', e);
+}
+
+// ---------------------------------------------------------------------------
+// Reverse Geocoding Cache & Handler
+// ---------------------------------------------------------------------------
+interface GeoResult {
+  displayName: string;
+  area: string;
+  city: string;
+  state: string;
+  country: string;
+}
+
+const geocodeCache = new Map<string, GeoResult>();
+
+async function resolveReverseGeocode(lat: number, lon: number): Promise<GeoResult | null> {
   const cacheKey = `${lat.toFixed(3)},${lon.toFixed(3)}`;
   const cached = geocodeCache.get(cacheKey);
   if (cached) return cached;
@@ -53,17 +134,29 @@ async function resolveReverseGeocode(lat: number, lon: number): Promise<{ displa
     if (!response.ok) return null;
     const data = await response.json();
     const address = data.address || {};
+    const area =
+      address.suburb ||
+      address.neighbourhood ||
+      address.quarter ||
+      address.residential ||
+      address.commercial ||
+      address.hamlet ||
+      '';
     const city =
       address.city ||
       address.town ||
       address.village ||
-      address.suburb ||
       address.municipality ||
       address.county ||
       '';
+    const state = address.state || address.province || address.region || '';
     const country = address.country || '';
-    const displayName = data.display_name || (city ? `${city}, ${country}` : country) || '';
-    const result = { displayName, city, country };
+    const displayName =
+      data.display_name ||
+      (city ? `${city}${state ? `, ${state}` : ''}, ${country}` : country) ||
+      '';
+    const result: GeoResult = { displayName, area, city, state, country };
+
     geocodeCache.set(cacheKey, result);
     if (geocodeCache.size > 1000) {
       const firstKey = geocodeCache.keys().next().value;
@@ -72,36 +165,6 @@ async function resolveReverseGeocode(lat: number, lon: number): Promise<{ displa
     return result;
   } catch {
     return null;
-  }
-}
-
-const DATA_DIR = path.join(process.cwd(), 'data');
-const DATA_FILE = path.join(DATA_DIR, 'visitors.json');
-
-try {
-  if (fs.existsSync(DATA_FILE)) {
-    const raw = fs.readFileSync(DATA_FILE, 'utf-8');
-    const items = JSON.parse(raw);
-    if (Array.isArray(items)) {
-      for (const item of items) {
-        if (item && item.id) {
-          visitorsMap.set(String(item.id), item);
-        }
-      }
-    }
-  }
-} catch {
-  // in-memory fallback
-}
-
-function persistVisitors() {
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    fs.writeFileSync(DATA_FILE, JSON.stringify(Array.from(visitorsMap.values()), null, 2), 'utf-8');
-  } catch {
-    // ignore disk write errors
   }
 }
 
@@ -154,13 +217,34 @@ async function startServer() {
   app.use(express.json());
   app.use(cookieParser());
 
+  // Security: Block direct HTTP downloads of database files
+  app.use((req: Request, res: Response, next) => {
+    const p = req.path.toLowerCase();
+    if (p === '/data.db' || p.endsWith('.db') || p.endsWith('.sqlite')) {
+      res.status(403).json({ error: 'Access to database file is forbidden.' });
+      return;
+    }
+    next();
+  });
+
   // API Routes
+  app.get('/api/health', (_req: Request, res: Response) => {
+    res.json({ status: 'ok' });
+  });
+
   app.get('/api/reverse-geocode', async (req: Request, res: Response) => {
     const lat = Number(req.query.latitude ?? req.query.lat);
     const lon = Number(req.query.longitude ?? req.query.lon);
 
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-      res.status(400).json({ error: 'Valid latitude and longitude required' });
+    if (
+      !Number.isFinite(lat) ||
+      !Number.isFinite(lon) ||
+      lat < -90 ||
+      lat > 90 ||
+      lon < -180 ||
+      lon > 180
+    ) {
+      res.status(400).json({ error: 'Valid latitude (-90..90) and longitude (-180..180) required' });
       return;
     }
 
@@ -173,6 +257,7 @@ async function startServer() {
   });
 
   app.post('/api/visitors', async (req: Request, res: Response) => {
+    console.log('[VISITOR] Request received');
     const body = req.body || {};
     const name =
       typeof body.nickname === 'string'
@@ -201,29 +286,72 @@ async function startServer() {
       return;
     }
 
+    console.log('[VISITOR] Payload validated');
+
+    // Deduplication check: check if identical record was submitted in last 5 seconds
+    try {
+      const recent = db
+        .prepare(`
+          SELECT id FROM visitors
+          WHERE nickname = ? AND ABS(latitude - ?) < 0.0001 AND ABS(longitude - ?) < 0.0001
+          AND datetime(created_at) >= datetime('now', '-5 seconds')
+          LIMIT 1
+        `)
+        .get(name, lat, lon);
+
+      if (recent) {
+        console.log('[VISITOR] Duplicate request ignored within 5s deduplication window');
+        res.status(200).json({ ok: true, deduplicated: true });
+        return;
+      }
+    } catch {
+      // Continue if deduplication check fails
+    }
+
+    console.log('[VISITOR] Saving visitor');
     const createdAt = new Date().toISOString();
-    const record: Visitor = {
-      id: Date.now(),
-      nickname: name,
-      latitude: lat,
-      longitude: lon,
-      accuracy,
-      timestamp: clientTimestamp,
-      createdAt,
-    };
+    const userAgent = typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : null;
+    const forwarded = req.headers['x-forwarded-for'];
+    const ipAddress =
+      typeof forwarded === 'string'
+        ? forwarded.split(',')[0].trim()
+        : req.socket.remoteAddress || null;
 
     // Attempt reverse geocoding
     const geo = await resolveReverseGeocode(lat, lon);
-    if (geo) {
-      record.address = geo.displayName;
-      record.city = geo.city;
-      record.country = geo.country;
+
+    // Insert into SQLite database using parameterized statement
+    try {
+      const insertStmt = db.prepare(`
+        INSERT INTO visitors (
+          nickname, latitude, longitude, accuracy, timestamp,
+          address, area, city, state, country,
+          user_agent, ip_address, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      insertStmt.run(
+        name,
+        lat,
+        lon,
+        accuracy != null ? accuracy : null,
+        clientTimestamp || null,
+        geo?.displayName || null,
+        geo?.area || null,
+        geo?.city || null,
+        geo?.state || null,
+        geo?.country || null,
+        userAgent,
+        ipAddress,
+        createdAt
+      );
+
+      console.log('[VISITOR] Database insert successful');
+      res.status(201).json({ ok: true });
+    } catch (dbErr) {
+      console.error('[VISITOR] Database insert error:', dbErr);
+      res.status(500).json({ error: 'Failed to record visitor.' });
     }
-
-    visitorsMap.set(`${record.id}`, record);
-    persistVisitors();
-
-    res.status(201).json({ ok: true });
   });
 
   app.post('/api/admin/login', (req: Request, res: Response) => {
@@ -231,6 +359,8 @@ async function startServer() {
     if (
       typeof username !== 'string' ||
       typeof password !== 'string' ||
+      !username ||
+      !password ||
       username !== ADMIN_USER ||
       password.length !== ADMIN_PASSWORD.length ||
       !crypto.timingSafeEqual(Buffer.from(password), Buffer.from(ADMIN_PASSWORD))
@@ -269,11 +399,32 @@ async function startServer() {
       return;
     }
 
-    const list = Array.from(visitorsMap.values()).sort((a, b) =>
-      b.createdAt.localeCompare(a.createdAt),
-    );
+    try {
+      const stmt = db.prepare(`SELECT * FROM visitors ORDER BY id DESC`);
+      const rows = stmt.all() as any[];
 
-    res.json({ visitors: list });
+      const list: Visitor[] = rows.map((r) => ({
+        id: Number(r.id),
+        nickname: String(r.nickname),
+        latitude: Number(r.latitude),
+        longitude: Number(r.longitude),
+        accuracy: r.accuracy != null ? Number(r.accuracy) : undefined,
+        timestamp: r.timestamp ? String(r.timestamp) : undefined,
+        address: r.address ? String(r.address) : undefined,
+        area: r.area ? String(r.area) : undefined,
+        city: r.city ? String(r.city) : undefined,
+        state: r.state ? String(r.state) : undefined,
+        country: r.country ? String(r.country) : undefined,
+        user_agent: r.user_agent ? String(r.user_agent) : undefined,
+        ip_address: r.ip_address ? String(r.ip_address) : undefined,
+        createdAt: String(r.created_at),
+      }));
+
+      res.json({ visitors: list });
+    } catch (err) {
+      console.error('[ADMIN] Error fetching visitors:', err);
+      res.status(500).json({ error: 'Failed to retrieve visitors' });
+    }
   });
 
   // Frontend integration (Vite dev middleware or Static bundle serving)

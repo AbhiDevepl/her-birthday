@@ -109,33 +109,16 @@ export default function VisitorGate({ onDone }: VisitorGateProps) {
       });
 
       if (!res.ok) {
-        if (res.status === 404) {
-          // If backend API route is 404 (e.g. static hosting on Vercel), store locally
-          console.warn('Backend API /api/visitors returned 404. Saving visitor check-in locally.');
-          try {
-            const raw = localStorage.getItem('offlineVisitors');
-            const list = raw ? JSON.parse(raw) : [];
-            list.push({
-              id: Date.now(),
-              ...payload,
-              address: resolvedAddress || undefined,
-              createdAt: new Date().toISOString(),
-            });
-            localStorage.setItem('offlineVisitors', JSON.stringify(list));
-          } catch (storageErr) {
-            console.warn('Could not save to localStorage:', storageErr);
-          }
-          onDone();
-          return;
-        }
-
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || 'Something went wrong. Please try again.');
+        setFormError(body.error || 'Server rejected registration. Please try again.');
+        return;
       }
 
+      sessionStorage.setItem('visitor_registered', 'true');
       onDone();
-    } catch (err) {
-      console.warn('Visitor registration network error, saving locally:', err);
+    } catch (err: any) {
+      console.warn('Visitor registration network error:', err);
+      // If network fails (e.g. offline preview), persist locally so user isn't permanently blocked, but notify
       try {
         const raw = localStorage.getItem('offlineVisitors');
         const list = raw ? JSON.parse(raw) : [];
@@ -147,9 +130,8 @@ export default function VisitorGate({ onDone }: VisitorGateProps) {
         });
         localStorage.setItem('offlineVisitors', JSON.stringify(list));
         onDone();
-        return;
       } catch {
-        setFormError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
+        setFormError('Unable to connect to the server. Please check your internet connection and try again.');
       }
     } finally {
       setSubmitting(false);
