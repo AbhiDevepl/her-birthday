@@ -167,14 +167,12 @@ export default function VisitorGate({ onDone }: VisitorGateProps) {
 
         {/* Location Status Card */}
         <div className="flex flex-col gap-1.5">
-          <span className="font-sans text-xs uppercase tracking-widest text-kraft font-semibold">
-            Location Status
+          <span className="font-sans text-xs uppercase tracking-widest text-kraft font-semibold"> 
           </span>
 
           {locating && !location && (
             <div className="flex items-center gap-2 p-3 rounded-sm bg-[#FAF0E6] border border-kraft/40 text-on-surface-variant font-sans text-xs">
               <Loader2 className="w-4 h-4 text-crimson animate-spin shrink-0" />
-              <span>Detecting your location...</span>
             </div>
           )}
 
