@@ -1,24 +1,31 @@
-const ADMIN_USER = process.env.ADMIN_USER || 'admin';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'om1234';
+import {
+  credentialsMatch,
+  issueSessionToken,
+  setSessionCookie,
+} from '../lib/auth';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Cache-Control', 'no-store');
 
   if (req.method === 'OPTIONS') {
-    res.status(200).end();
+    res.statusCode = 204;
+    res.end();
     return;
   }
 
   if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' });
+    res.statusCode = 405;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ error: 'Method not allowed' }));
     return;
   }
 
   try {
-    let body = req.body;
+    let body: any = req.body;
     if (typeof body === 'string') {
       try {
         body = JSON.parse(body);
@@ -28,15 +35,20 @@ export default async function handler(req: any, res: any) {
     }
     body = body || {};
 
-    const { username, password } = body;
-    if (username === ADMIN_USER && password === ADMIN_PASSWORD) {
-      res.setHeader('Set-Cookie', 'admin_session=authenticated; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200');
-      res.status(200).json({ ok: true });
+    if (!credentialsMatch(body.username, body.password)) {
+      res.statusCode = 401;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ error: 'Invalid credentials' }));
       return;
     }
 
-    res.status(401).json({ error: 'Invalid credentials' });
+    setSessionCookie(res, issueSessionToken());
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ ok: true }));
   } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'Server error' });
+    res.statusCode = 500;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ error: err?.message || 'Server error' }));
   }
 }

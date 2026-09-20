@@ -31,6 +31,25 @@ export interface Visitor {
   createdAt: string;
 }
 
+function rowToVisitor(r: any): Visitor {
+  return {
+    id: Number(r.id),
+    nickname: String(r.nickname),
+    latitude: Number(r.latitude),
+    longitude: Number(r.longitude),
+    accuracy: r.accuracy != null ? Number(r.accuracy) : undefined,
+    timestamp: r.timestamp ? String(r.timestamp) : undefined,
+    address: r.address ? String(r.address) : undefined,
+    area: r.area ? String(r.area) : undefined,
+    city: r.city ? String(r.city) : undefined,
+    state: r.state ? String(r.state) : undefined,
+    country: r.country ? String(r.country) : undefined,
+    user_agent: r.user_agent ? String(r.user_agent) : undefined,
+    ip_address: r.ip_address ? String(r.ip_address) : undefined,
+    createdAt: String(r.created_at),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Database: SQLite (data.db)
 // ---------------------------------------------------------------------------
@@ -288,27 +307,6 @@ async function startServer() {
 
     console.log('[VISITOR] Payload validated');
 
-    // Deduplication check: check if identical record was submitted in last 5 seconds
-    try {
-      const recent = db
-        .prepare(`
-          SELECT id FROM visitors
-          WHERE nickname = ? AND ABS(latitude - ?) < 0.0001 AND ABS(longitude - ?) < 0.0001
-          AND datetime(created_at) >= datetime('now', '-5 seconds')
-          LIMIT 1
-        `)
-        .get(name, lat, lon);
-
-      if (recent) {
-        console.log('[VISITOR] Duplicate request ignored within 5s deduplication window');
-        res.status(200).json({ ok: true, deduplicated: true });
-        return;
-      }
-    } catch {
-      // Continue if deduplication check fails
-    }
-
-    console.log('[VISITOR] Saving visitor');
     const createdAt = new Date().toISOString();
     const userAgent = typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : null;
     const forwarded = req.headers['x-forwarded-for'];
@@ -317,41 +315,85 @@ async function startServer() {
         ? forwarded.split(',')[0].trim()
         : req.socket.remoteAddress || null;
 
-    // Attempt reverse geocoding
-    const geo = await resolveReverseGeocode(lat, lon);
+    // Deduplication check: identical record submitted within the last 5 seconds
+    try {
+      const recent = db
+        .prepare(`
+          SELECT id FROM visitors
+          WHERE nickname = ? AND ABS(latitude - ?) < 0.0001 AND ABS(longitude - ?) < 0.0001
+          AND datetime(created_at) >= datetime('now', '-5 seconds')
+          LIMIT 1
+        `)
+        .get(name, lat, lon) as { id: number | bigint } | undefined;
 
-    // Insert into SQLite database using parameterized statement
+      if (recent) {
+        console.log('[VISITOR] Duplicate request ignored within 5s deduplication window');
+        const existing = db
+          .prepare('SELECT * FROM visitors WHERE id = ?')
+          .get(recent.id) as any;
+        res.status(200).json({
+          ok: true,
+          deduplicated: true,
+          visitor: existing ? rowToVisitor(existing) : { id: Number(recent.id) },
+        });
+        return;
+      }
+    } catch {
+      // Continue if deduplication check fails
+    }
+
+    // Persist coordinates immediately; reverse geocoding must not block saving.
+    let insertedId: number;
     try {
       const insertStmt = db.prepare(`
-        INSERT INTO visitors (
-          nickname, latitude, longitude, accuracy, timestamp,
-          address, area, city, state, country,
-          user_agent, ip_address, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO visitors (nickname, latitude, longitude, accuracy, timestamp, user_agent, ip_address, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
-
-      insertStmt.run(
+      const result = insertStmt.run(
         name,
         lat,
         lon,
         accuracy != null ? accuracy : null,
         clientTimestamp || null,
-        geo?.displayName || null,
-        geo?.area || null,
-        geo?.city || null,
-        geo?.state || null,
-        geo?.country || null,
         userAgent,
         ipAddress,
         createdAt
       );
-
-      console.log('[VISITOR] Database insert successful');
-      res.status(201).json({ ok: true });
+      insertedId = Number(result.lastInsertRowid);
+      console.log('[VISITOR] Database insert successful (id=%s)', insertedId);
     } catch (dbErr) {
       console.error('[VISITOR] Database insert error:', dbErr);
       res.status(500).json({ error: 'Failed to record visitor.' });
+      return;
     }
+
+    // Reverse geocoding afterwards: enrich the stored row if possible, never block on it.
+    const geo = await resolveReverseGeocode(lat, lon).catch(() => null);
+    if (geo) {
+      try {
+        db.prepare(`
+          UPDATE visitors
+          SET address = ?, area = ?, city = ?, state = ?, country = ?
+          WHERE id = ?
+        `).run(
+          geo.displayName || null,
+          geo.area || null,
+          geo.city || null,
+          geo.state || null,
+          geo.country || null,
+          insertedId
+        );
+      } catch (e) {
+        console.warn('[VISITOR] Reverse geocode enrichment update failed:', e);
+      }
+    }
+
+    // Return the authoritative persisted record (id + all stored fields).
+    const saved = db.prepare('SELECT * FROM visitors WHERE id = ?').get(insertedId) as any;
+    res.status(201).json({
+      ok: true,
+      visitor: saved ? rowToVisitor(saved) : { id: insertedId },
+    });
   });
 
   app.post('/api/admin/login', (req: Request, res: Response) => {
@@ -370,6 +412,7 @@ async function startServer() {
     }
 
     const token = sign(`${ADMIN_USER}|${Date.now() + 12 * 3600e3}`);
+    res.set('Cache-Control', 'no-store');
     res.cookie(COOKIE_NAME, token, {
       httpOnly: true,
       path: '/',
@@ -381,11 +424,13 @@ async function startServer() {
   });
 
   app.post('/api/admin/logout', (_req: Request, res: Response) => {
+    res.set('Cache-Control', 'no-store');
     res.clearCookie(COOKIE_NAME, { path: '/' });
     res.json({ ok: true });
   });
 
   app.get('/api/admin/me', (req: Request, res: Response) => {
+    res.set('Cache-Control', 'no-store');
     if (isRequestAdmin(req)) {
       res.json({ ok: true });
     } else {
@@ -394,6 +439,7 @@ async function startServer() {
   });
 
   app.get('/api/admin/visitors', (req: Request, res: Response) => {
+    res.set('Cache-Control', 'no-store');
     if (!isRequestAdmin(req)) {
       res.status(401).json({ error: 'Unauthorized' });
       return;
@@ -402,23 +448,7 @@ async function startServer() {
     try {
       const stmt = db.prepare(`SELECT * FROM visitors ORDER BY id DESC`);
       const rows = stmt.all() as any[];
-
-      const list: Visitor[] = rows.map((r) => ({
-        id: Number(r.id),
-        nickname: String(r.nickname),
-        latitude: Number(r.latitude),
-        longitude: Number(r.longitude),
-        accuracy: r.accuracy != null ? Number(r.accuracy) : undefined,
-        timestamp: r.timestamp ? String(r.timestamp) : undefined,
-        address: r.address ? String(r.address) : undefined,
-        area: r.area ? String(r.area) : undefined,
-        city: r.city ? String(r.city) : undefined,
-        state: r.state ? String(r.state) : undefined,
-        country: r.country ? String(r.country) : undefined,
-        user_agent: r.user_agent ? String(r.user_agent) : undefined,
-        ip_address: r.ip_address ? String(r.ip_address) : undefined,
-        createdAt: String(r.created_at),
-      }));
+      const list: Visitor[] = rows.map(rowToVisitor);
 
       res.json({ visitors: list });
     } catch (err) {

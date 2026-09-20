@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 interface Visitor {
   id: number;
@@ -8,9 +8,57 @@ interface Visitor {
   accuracy?: number;
   timestamp?: string;
   address?: string;
+  area?: string;
   city?: string;
+  state?: string;
   country?: string;
   createdAt: string;
+}
+
+const POLL_INTERVAL_MS = 5000;
+const NEW_VISITOR_BANNER_MS = 4000;
+
+type AuthState = 'checking' | 'authed' | 'unauth';
+type LiveStatus = 'loading' | 'live' | 'refreshing' | 'error';
+
+function formatVisitedTime(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+function StatusBadge({ status, lastUpdated }: { status: LiveStatus; lastUpdated: Date | null }) {
+  if (status === 'loading') {
+    return <span className="font-sans text-xs text-on-surface-variant">Loading visitors…</span>;
+  }
+  if (status === 'refreshing') {
+    return <span className="font-sans text-xs text-kraft">Refreshing…</span>;
+  }
+  if (status === 'error') {
+    return (
+      <span className="font-sans text-xs text-dark-red">
+        Connection error — Retrying…
+      </span>
+    );
+  }
+  return (
+    <span className="font-sans text-xs text-emerald-800 flex items-center gap-1.5">
+      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block" />
+      <span>
+        Live
+        {lastUpdated && (
+          <span className="text-on-surface-variant"> — Last updated: {lastUpdated.toLocaleTimeString()}</span>
+        )}
+      </span>
+    </span>
+  );
 }
 
 function LoginForm({ onSuccess }: { onSuccess: () => void }) {
@@ -23,39 +71,23 @@ function LoginForm({ onSuccess }: { onSuccess: () => void }) {
     e.preventDefault();
     setBusy(true);
     setError('');
-
-    let isSuccess = false;
     try {
       const res = await fetch('/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
+        cache: 'no-store',
       });
-      const contentType = res.headers.get('content-type') || '';
-      if (res.ok && contentType.includes('application/json')) {
-        const data = await res.json().catch(() => null);
-        if (data?.ok) {
-          isSuccess = true;
-        }
+      if (res.ok) {
+        onSuccess();
+      } else {
+        setError('Invalid username or password.');
       }
     } catch {
-      // Backend not reached, will check fallback below
+      setError('Connection error. Is the backend reachable?');
+    } finally {
+      setBusy(false);
     }
-
-    // Fallback authentication for offline or static deployments
-    if (!isSuccess) {
-      if (username === 'admin' && password === 'om1234') {
-        isSuccess = true;
-      }
-    }
-
-    if (isSuccess) {
-      sessionStorage.setItem('local_admin_authed', 'true');
-      onSuccess();
-    } else {
-      setError('Invalid username or password.');
-    }
-    setBusy(false);
   };
 
   return (
@@ -88,96 +120,148 @@ function LoginForm({ onSuccess }: { onSuccess: () => void }) {
 }
 
 export default function AdminDashboard() {
-  const [authed, setAuthed] = useState<boolean | null>(null);
-  const [visitors, setVisitors] = useState<Visitor[] | null>(null);
-  const [error, setError] = useState('');
+  const [authState, setAuthState] = useState<AuthState>('checking');
+  const [visitors, setVisitors] = useState<Visitor[]>([]);
+  const [liveStatus, setLiveStatus] = useState<LiveStatus>('loading');
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [newVisitor, setNewVisitor] = useState<string | null>(null);
+  const [loadingError, setLoadingError] = useState('');
 
-  const load = useCallback(async () => {
-    setError('');
-    setVisitors(null);
+  const mountedRef = useRef(true);
+  const inFlightRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const prevTopRef = useRef<{ id: number; createdAt: string } | null>(null);
+  const bannerTimerRef = useRef<number | null>(null);
 
-    // Read any offline/fallback visitors saved in localStorage
-    const getOfflineVisitors = (): Visitor[] => {
-      try {
-        const raw = localStorage.getItem('offlineVisitors');
-        return raw ? JSON.parse(raw) : [];
-      } catch {
-        return [];
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (bannerTimerRef.current != null) {
+        window.clearTimeout(bannerTimerRef.current);
+        bannerTimerRef.current = null;
       }
     };
+  }, []);
 
+  // Backend determines the session: /api/admin/me returns 200 only when a valid
+  // HMAC-signed admin_session cookie is present. No client-side fallback auth.
+  useEffect(() => {
+    const ctrl = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch('/api/admin/me', { cache: 'no-store', signal: ctrl.signal });
+        if (!mountedRef.current) return;
+        setAuthState(res.ok ? 'authed' : 'unauth');
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return;
+        if (!mountedRef.current) return;
+        setAuthState('unauth');
+      }
+    })();
+    return () => ctrl.abort();
+  }, []);
+
+  const load = useCallback(async () => {
+    if (!mountedRef.current || inFlightRef.current) return;
+    inFlightRef.current = true;
+    setLiveStatus((prev) => (prev === 'live' ? 'refreshing' : prev));
     try {
-      const res = await fetch('/api/admin/visitors');
-      const contentType = res.headers.get('content-type') || '';
-
+      const res = await fetch('/api/admin/visitors', {
+        cache: 'no-store',
+        signal: abortRef.current?.signal,
+      });
+      if (!mountedRef.current) return;
       if (res.status === 401) {
-        sessionStorage.removeItem('local_admin_authed');
-        setAuthed(false);
+        setAuthState('unauth');
         return;
       }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = await res.json();
+      if (!mountedRef.current) return;
+      if (!body || !Array.isArray(body.visitors)) throw new Error('Unexpected admin response');
+      const next: Visitor[] = body.visitors;
+      setVisitors(next);
+      setLiveStatus('live');
+      setLastUpdated(new Date());
+      setLoadingError('');
 
-      let serverList: Visitor[] = [];
-      let isBackendAuthed = false;
-
-      if (res.ok && contentType.includes('application/json')) {
-        try {
-          const body = await res.json();
-          if (body && Array.isArray(body.visitors)) {
-            serverList = body.visitors;
-            isBackendAuthed = true;
-          }
-        } catch {
-          // Ignore JSON parse issue on corrupted responses
-        }
+      const top = next.length ? next[0] : null;
+      const prev = prevTopRef.current;
+      if (prev && top && (top.id !== prev.id || top.createdAt !== prev.createdAt)) {
+        setNewVisitor(top.nickname);
+        if (bannerTimerRef.current != null) window.clearTimeout(bannerTimerRef.current);
+        bannerTimerRef.current = window.setTimeout(() => {
+          bannerTimerRef.current = null;
+          if (mountedRef.current) setNewVisitor(null);
+        }, NEW_VISITOR_BANNER_MS);
       }
-
-      const isLocalAuthed = sessionStorage.getItem('local_admin_authed') === 'true';
-      if (!isBackendAuthed && !isLocalAuthed) {
-        setAuthed(false);
-        return;
+      prevTopRef.current = top ? { id: top.id, createdAt: top.createdAt } : null;
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return;
+      if (mountedRef.current) {
+        setLiveStatus('error');
+        setLoadingError('Connection error');
       }
-
-      setAuthed(true);
-      const offlineList = getOfflineVisitors();
-      
-      // Combine and deduplicate by timestamp/id
-      const idSet = new Set(serverList.map((v) => v.id));
-      const combined = [...serverList];
-      for (const off of offlineList) {
-        if (!idSet.has(off.id)) {
-          combined.push(off);
-        }
-      }
-      combined.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-      setVisitors(combined);
-    } catch {
-      const isLocalAuthed = sessionStorage.getItem('local_admin_authed') === 'true';
-      if (isLocalAuthed) {
-        setAuthed(true);
-        setVisitors(getOfflineVisitors());
-      } else {
-        setAuthed(false);
-      }
+    } finally {
+      inFlightRef.current = false;
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  // Poll while authenticated: immediate fetch, then every POLL_INTERVAL_MS.
+  // The interval keeps running regardless of in-flight state; load()'s own
+  // guard prevents overlapping requests. Cleanup clears interval + aborts.
+  useEffect(() => {
+    if (authState !== 'authed') return;
 
-  const logout = async () => {
-    sessionStorage.removeItem('local_admin_authed');
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    inFlightRef.current = false;
+    prevTopRef.current = null; // first poll after auth is the baseline (no "new" banner)
+    setLiveStatus('loading');
+    setLoadingError('');
+
+    load();
+
+    const timer = window.setInterval(() => {
+      load();
+    }, POLL_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(timer);
+      inFlightRef.current = false;
+      ctrl.abort();
+      if (bannerTimerRef.current != null) {
+        window.clearTimeout(bannerTimerRef.current);
+        bannerTimerRef.current = null;
+      }
+    };
+  }, [authState, load]);
+
+  const handleLogout = async () => {
     try {
-      await fetch('/api/admin/logout', { method: 'POST' });
+      await fetch('/api/admin/logout', { method: 'POST', cache: 'no-store' });
     } catch {
-      // ignore
+      // Session is dropped client-side regardless of backend reachability.
     }
-    setAuthed(false);
-    setVisitors(null);
+    setAuthState('unauth');
+    setVisitors([]);
+    setLiveStatus('loading');
+    setNewVisitor(null);
   };
 
-  if (authed === false) {
+  if (authState === 'checking') {
     return (
       <div className="min-h-screen paper-bg flex items-center justify-center p-6">
-        <LoginForm onSuccess={load} />
+        <p className="font-serif text-on-surface-variant">Checking session…</p>
+      </div>
+    );
+  }
+
+  if (authState === 'unauth') {
+    return (
+      <div className="min-h-screen paper-bg flex items-center justify-center p-6">
+        <LoginForm onSuccess={() => setAuthState('authed')} />
       </div>
     );
   }
@@ -189,28 +273,46 @@ export default function AdminDashboard() {
           <div>
             <h1 className="font-cursive text-4xl md:text-5xl text-crimson font-bold">Admin Dashboard</h1>
             <p className="font-sans text-sm text-on-surface-variant">
-              Total Visitors: <strong>{visitors?.length ?? '—'}</strong>
+              Total Visitors: <strong>{visitors.length}</strong>
             </p>
           </div>
-          <div className="flex gap-2">
-            <button onClick={load} className="font-sans text-sm font-semibold px-4 py-2 border-2 border-crimson text-crimson rounded-sm hover:bg-crimson hover:text-cream transition-colors cursor-pointer">
-              Refresh
-            </button>
-            <button onClick={logout} className="font-sans text-sm font-semibold px-4 py-2 border-2 border-kraft text-kraft rounded-sm hover:bg-kraft hover:text-white transition-colors cursor-pointer">
-              Log out
-            </button>
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex gap-2">
+              <button onClick={load} className="font-sans text-sm font-semibold px-4 py-2 border-2 border-crimson text-crimson rounded-sm hover:bg-crimson hover:text-cream transition-colors cursor-pointer">
+                Refresh
+              </button>
+              <button onClick={handleLogout} className="font-sans text-sm font-semibold px-4 py-2 border-2 border-kraft text-kraft rounded-sm hover:bg-kraft hover:text-white transition-colors cursor-pointer">
+                Log out
+              </button>
+            </div>
+            <StatusBadge status={liveStatus} lastUpdated={lastUpdated} />
           </div>
         </header>
 
-        {error && <p role="alert" className="font-sans text-sm text-dark-red bg-blush/30 border border-dark-red/30 rounded-sm px-3 py-2">{error}</p>}
-
-        {visitors === null && !error && <p className="font-serif text-on-surface-variant">Loading visitors…</p>}
-
-        {visitors?.length === 0 && !error && (
-          <p className="font-serif text-on-surface-variant bg-white p-6 rounded-sm polaroid-shadow">No visitor records yet.</p>
+        {newVisitor && (
+          <div role="status" className="flex items-center gap-2 font-sans text-sm text-emerald-900 bg-emerald-50 border border-emerald-300/60 rounded-sm px-3 py-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block" />
+            New visitor received: <strong>{newVisitor}</strong>
+          </div>
         )}
 
-        {!!visitors?.length && (
+        {loadingError && (
+          <p role="alert" className="font-sans text-sm text-dark-red bg-blush/30 border border-dark-red/30 rounded-sm px-3 py-2">
+            {loadingError} — retrying automatically.
+          </p>
+        )}
+
+        {authState === 'authed' && liveStatus === 'loading' && visitors.length === 0 && (
+          <p className="font-serif text-on-surface-variant bg-white p-6 rounded-sm polaroid-shadow">Loading visitors…</p>
+        )}
+
+        {authState === 'authed' && liveStatus !== 'loading' && visitors.length === 0 && (
+          <p className="font-serif text-on-surface-variant bg-white p-6 rounded-sm polaroid-shadow">
+            No visitor records yet.
+          </p>
+        )}
+
+        {visitors.length > 0 && (
           <div className="bg-white polaroid-shadow rounded-sm overflow-x-auto">
             <table className="w-full text-left font-sans text-sm">
               <thead className="bg-[#FAF0E6] text-kraft uppercase text-xs tracking-widest">
@@ -219,7 +321,7 @@ export default function AdminDashboard() {
                   <th className="px-4 py-3">Coordinates</th>
                   <th className="px-4 py-3">Accuracy</th>
                   <th className="px-4 py-3">Address / Area</th>
-                  <th className="px-4 py-3">Date</th>
+                  <th className="px-4 py-3">Visited</th>
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
@@ -244,8 +346,8 @@ export default function AdminDashboard() {
                         ? `${v.city}, ${v.country}`
                         : v.address || <span className="text-on-surface-variant/60">—</span>}
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-xs text-on-surface-variant">
-                      {new Date(v.createdAt).toLocaleString()}
+                    <td className="px-4 py-3 whitespace-nowrap text-xs text-on-surface-variant" title="Registration time">
+                      {formatVisitedTime(v.createdAt)}
                     </td>
                     <td className="px-4 py-3">
                       <a
