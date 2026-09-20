@@ -164,32 +164,7 @@ export default function VisitorGate({ onDone }: VisitorGateProps) {
             className="font-serif text-lg px-4 py-3 bg-[#FAF0E6] border border-dashed border-kraft/60 rounded-sm outline-none focus:border-crimson focus:ring-2 focus:ring-crimson/20"
           />
         </div>
-
-        {/* Location Status Card */}
-        <div className="flex flex-col gap-1.5">
-          <span className="font-sans text-xs uppercase tracking-widest text-kraft font-semibold"> 
-          </span>
-
-          {locating && !location && (
-            <div className="flex items-center gap-2 p-3 rounded-sm bg-[#FAF0E6] border border-kraft/40 text-on-surface-variant font-sans text-xs">
-              <Loader2 className="w-4 h-4 text-crimson animate-spin shrink-0" />
             </div>
-          )}
-
-          {location && (
-            <div className="p-3 rounded-sm bg-emerald-50/80 border border-emerald-300/60 text-emerald-900 font-sans text-xs flex flex-col gap-1.5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5 font-semibold text-emerald-800">
-                  <MapPin className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Location detected</span>
-                </div>
-                {isTracking && (
-                  <span className="flex items-center gap-1 text-[10px] text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full font-medium">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    Live GPS
-                  </span>
-                )}
-              </div>
               <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 font-mono text-[11px] text-emerald-800/90 pt-1 border-t border-emerald-200/50">
                 <div>
                   Latitude: <span className="font-semibold">{latitude?.toFixed(4)}</span>
