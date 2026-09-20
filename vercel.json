@@ -1,12 +1,6 @@
 {
   "buildCommand": "vite build",
   "outputDirectory": "dist",
-  "nodeVersion": "22.x",
-  "functions": {
-    "api/**.ts": {
-      "includeFiles": "{data.db,data/visitors.json}"
-    }
-  },
   "rewrites": [
     {
       "source": "/((?!api/).*)",

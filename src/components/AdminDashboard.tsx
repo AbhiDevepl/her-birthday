@@ -1,64 +1,20 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { RefreshCw, LogOut, CheckCircle2, AlertTriangle, ShieldCheck, MapPin } from 'lucide-react';
 
 interface Visitor {
-  id: number;
+  id: number | string;
   nickname: string;
   latitude: number;
   longitude: number;
-  accuracy?: number;
-  timestamp?: string;
-  address?: string;
-  area?: string;
-  city?: string;
-  state?: string;
-  country?: string;
+  accuracy?: number | null;
+  timestamp?: string | null;
+  address?: string | null;
+  area?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  user_agent?: string | null;
   createdAt: string;
-}
-
-const POLL_INTERVAL_MS = 5000;
-const NEW_VISITOR_BANNER_MS = 4000;
-
-type AuthState = 'checking' | 'authed' | 'unauth';
-type LiveStatus = 'loading' | 'live' | 'refreshing' | 'error';
-
-function formatVisitedTime(iso: string): string {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-}
-
-function StatusBadge({ status, lastUpdated }: { status: LiveStatus; lastUpdated: Date | null }) {
-  if (status === 'loading') {
-    return <span className="font-sans text-xs text-on-surface-variant">Loading visitors…</span>;
-  }
-  if (status === 'refreshing') {
-    return <span className="font-sans text-xs text-kraft">Refreshing…</span>;
-  }
-  if (status === 'error') {
-    return (
-      <span className="font-sans text-xs text-dark-red">
-        Connection error — Retrying…
-      </span>
-    );
-  }
-  return (
-    <span className="font-sans text-xs text-emerald-800 flex items-center gap-1.5">
-      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block" />
-      <span>
-        Live
-        {lastUpdated && (
-          <span className="text-on-surface-variant"> — Last updated: {lastUpdated.toLocaleTimeString()}</span>
-        )}
-      </span>
-    </span>
-  );
 }
 
 function LoginForm({ onSuccess }: { onSuccess: () => void }) {
@@ -71,292 +27,315 @@ function LoginForm({ onSuccess }: { onSuccess: () => void }) {
     e.preventDefault();
     setBusy(true);
     setError('');
+
     try {
       const res = await fetch('/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
-        cache: 'no-store',
       });
-      if (res.ok) {
+
+      const data = await res.json().catch(() => null);
+
+      if (res.ok && data?.ok) {
         onSuccess();
       } else {
-        setError('Invalid username or password.');
+        setError(data?.error || 'Invalid credentials.');
       }
     } catch {
-      setError('Connection error. Is the backend reachable?');
+      setError('Unable to reach authentication server. Please try again.');
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <form onSubmit={submit} className="max-w-sm w-full bg-white p-8 polaroid-shadow rounded-sm flex flex-col gap-4">
-      <h1 className="font-cursive text-4xl text-crimson font-bold">Admin Login</h1>
+    <form onSubmit={submit} className="max-w-sm w-full bg-white p-8 polaroid-shadow rounded-sm flex flex-col gap-4 border border-kraft/30">
+      <div className="flex items-center gap-2 text-crimson">
+        <ShieldCheck className="w-8 h-8" />
+        <h1 className="font-cursive text-4xl font-bold">Admin Login</h1>
+      </div>
+      <p className="font-sans text-xs text-on-surface-variant">
+        Sign in to view real-time visitor records from persistent database storage.
+      </p>
+
       <label className="font-sans text-xs uppercase tracking-widest text-kraft font-semibold" htmlFor="admin-user">
         Username
       </label>
       <input
-        id="admin-user" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)}
+        id="admin-user"
+        autoComplete="username"
+        value={username}
+        onChange={(e) => setUsername(e.target.value)}
         className="font-serif px-4 py-3 bg-[#FAF0E6] border border-dashed border-kraft/60 rounded-sm outline-none focus:border-crimson"
       />
+
       <label className="font-sans text-xs uppercase tracking-widest text-kraft font-semibold" htmlFor="admin-pass">
         Password
       </label>
       <input
-        id="admin-pass" type="password" autoComplete="current-password" required
-        value={password} onChange={(e) => setPassword(e.target.value)}
+        id="admin-pass"
+        type="password"
+        autoComplete="current-password"
+        required
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
         className="font-serif px-4 py-3 bg-[#FAF0E6] border border-dashed border-kraft/60 rounded-sm outline-none focus:border-crimson"
       />
-      {error && <p role="alert" className="font-sans text-sm text-dark-red">{error}</p>}
+
+      {error && (
+        <p role="alert" className="font-sans text-xs text-dark-red bg-blush/30 border border-dark-red/30 p-2 rounded-sm">
+          {error}
+        </p>
+      )}
+
       <button
-        type="submit" disabled={busy}
-        className="font-cursive text-2xl bg-radial from-[#C41E3A] to-[#8B0000] text-cream font-bold py-2.5 rounded-sm disabled:opacity-60 cursor-pointer"
+        type="submit"
+        disabled={busy}
+        className="font-cursive text-2xl bg-radial from-[#C41E3A] to-[#8B0000] text-cream font-bold py-2.5 rounded-sm disabled:opacity-60 cursor-pointer hover:shadow-md transition-shadow"
       >
-        {busy ? 'Signing in…' : 'Sign in'}
+        {busy ? 'Verifying…' : 'Sign in'}
       </button>
     </form>
   );
 }
 
 export default function AdminDashboard() {
-  const [authState, setAuthState] = useState<AuthState>('checking');
-  const [visitors, setVisitors] = useState<Visitor[]>([]);
-  const [liveStatus, setLiveStatus] = useState<LiveStatus>('loading');
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [newVisitor, setNewVisitor] = useState<string | null>(null);
-  const [loadingError, setLoadingError] = useState('');
+  const [authed, setAuthed] = useState<boolean | null>(null);
+  const [visitors, setVisitors] = useState<Visitor[] | null>(null);
+  const [error, setError] = useState('');
+  const [lastUpdated, setLastUpdated] = useState<string>('');
+  const [isLive, setIsLive] = useState<boolean>(false);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
-  const mountedRef = useRef(true);
-  const inFlightRef = useRef(false);
-  const abortRef = useRef<AbortController | null>(null);
-  const prevTopRef = useRef<{ id: number; createdAt: string } | null>(null);
-  const bannerTimerRef = useRef<number | null>(null);
+  const isFetchingRef = useRef<boolean>(false);
+  const isMountedRef = useRef<boolean>(true);
 
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      if (bannerTimerRef.current != null) {
-        window.clearTimeout(bannerTimerRef.current);
-        bannerTimerRef.current = null;
-      }
-    };
-  }, []);
+  // Poll or fetch visitor records from serverless persistent database
+  const fetchVisitors = useCallback(async (isManual = false) => {
+    // Prevent overlapping requests
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
 
-  // Backend determines the session: /api/admin/me returns 200 only when a valid
-  // HMAC-signed admin_session cookie is present. No client-side fallback auth.
-  useEffect(() => {
-    const ctrl = new AbortController();
-    (async () => {
-      try {
-        const res = await fetch('/api/admin/me', { cache: 'no-store', signal: ctrl.signal });
-        if (!mountedRef.current) return;
-        setAuthState(res.ok ? 'authed' : 'unauth');
-      } catch (err: any) {
-        if (err?.name === 'AbortError') return;
-        if (!mountedRef.current) return;
-        setAuthState('unauth');
-      }
-    })();
-    return () => ctrl.abort();
-  }, []);
+    if (isManual) {
+      setIsRefreshing(true);
+    }
 
-  const load = useCallback(async () => {
-    if (!mountedRef.current || inFlightRef.current) return;
-    inFlightRef.current = true;
-    setLiveStatus((prev) => (prev === 'live' ? 'refreshing' : prev));
     try {
       const res = await fetch('/api/admin/visitors', {
-        cache: 'no-store',
-        signal: abortRef.current?.signal,
+        headers: {
+          'Cache-Control': 'no-cache',
+        },
       });
-      if (!mountedRef.current) return;
+
+      if (!isMountedRef.current) return;
+
       if (res.status === 401) {
-        setAuthState('unauth');
+        setAuthed(false);
+        setIsLive(false);
         return;
       }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const body = await res.json();
-      if (!mountedRef.current) return;
-      if (!body || !Array.isArray(body.visitors)) throw new Error('Unexpected admin response');
-      const next: Visitor[] = body.visitors;
-      setVisitors(next);
-      setLiveStatus('live');
-      setLastUpdated(new Date());
-      setLoadingError('');
 
-      const top = next.length ? next[0] : null;
-      const prev = prevTopRef.current;
-      if (prev && top && (top.id !== prev.id || top.createdAt !== prev.createdAt)) {
-        setNewVisitor(top.nickname);
-        if (bannerTimerRef.current != null) window.clearTimeout(bannerTimerRef.current);
-        bannerTimerRef.current = window.setTimeout(() => {
-          bannerTimerRef.current = null;
-          if (mountedRef.current) setNewVisitor(null);
-        }, NEW_VISITOR_BANNER_MS);
+      if (!res.ok) {
+        throw new Error(`Server returned HTTP ${res.status}`);
       }
-      prevTopRef.current = top ? { id: top.id, createdAt: top.createdAt } : null;
+
+      const body = await res.json();
+      if (!isMountedRef.current) return;
+
+      if (Array.isArray(body.visitors)) {
+        setVisitors(body.visitors);
+        setAuthed(true);
+        setError('');
+        setIsLive(true);
+        setLastUpdated(new Date().toLocaleTimeString());
+      } else {
+        throw new Error('Invalid response format');
+      }
     } catch (err: any) {
-      if (err?.name === 'AbortError') return;
-      if (mountedRef.current) {
-        setLiveStatus('error');
-        setLoadingError('Connection error');
-      }
+      if (!isMountedRef.current) return;
+      setIsLive(false);
+      setError(err?.message || 'Failed to sync with visitor database');
     } finally {
-      inFlightRef.current = false;
+      isFetchingRef.current = false;
+      if (isMountedRef.current && isManual) {
+        setIsRefreshing(false);
+      }
     }
   }, []);
 
-  // Poll while authenticated: immediate fetch, then every POLL_INTERVAL_MS.
-  // The interval keeps running regardless of in-flight state; load()'s own
-  // guard prevents overlapping requests. Cleanup clears interval + aborts.
+  // Lifecycle: initial fetch + polling every 6 seconds
   useEffect(() => {
-    if (authState !== 'authed') return;
+    isMountedRef.current = true;
 
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-    inFlightRef.current = false;
-    prevTopRef.current = null; // first poll after auth is the baseline (no "new" banner)
-    setLiveStatus('loading');
-    setLoadingError('');
+    // Initial fetch immediately
+    fetchVisitors();
 
-    load();
+    // Prevent duplicate polling intervals
+    const intervalId = setInterval(() => {
+      fetchVisitors();
+    }, 6000);
 
-    const timer = window.setInterval(() => {
-      load();
-    }, POLL_INTERVAL_MS);
-
+    // Clear polling on unmount
     return () => {
-      window.clearInterval(timer);
-      inFlightRef.current = false;
-      ctrl.abort();
-      if (bannerTimerRef.current != null) {
-        window.clearTimeout(bannerTimerRef.current);
-        bannerTimerRef.current = null;
-      }
+      isMountedRef.current = false;
+      clearInterval(intervalId);
     };
-  }, [authState, load]);
+  }, [fetchVisitors]);
 
-  const handleLogout = async () => {
+  const logout = async () => {
     try {
-      await fetch('/api/admin/logout', { method: 'POST', cache: 'no-store' });
+      await fetch('/api/admin/logout', { method: 'POST' });
     } catch {
-      // Session is dropped client-side regardless of backend reachability.
+      // ignore network errors on logout
     }
-    setAuthState('unauth');
-    setVisitors([]);
-    setLiveStatus('loading');
-    setNewVisitor(null);
+    setAuthed(false);
+    setVisitors(null);
+    setIsLive(false);
   };
 
-  if (authState === 'checking') {
+  if (authed === false) {
     return (
       <div className="min-h-screen paper-bg flex items-center justify-center p-6">
-        <p className="font-serif text-on-surface-variant">Checking session…</p>
-      </div>
-    );
-  }
-
-  if (authState === 'unauth') {
-    return (
-      <div className="min-h-screen paper-bg flex items-center justify-center p-6">
-        <LoginForm onSuccess={() => setAuthState('authed')} />
+        <LoginForm onSuccess={() => fetchVisitors(true)} />
       </div>
     );
   }
 
   return (
     <div className="min-h-screen paper-bg p-4 md:p-10">
-      <div className="max-w-5xl mx-auto flex flex-col gap-6">
-        <header className="flex flex-wrap gap-3 justify-between items-center">
+      <div className="max-w-6xl mx-auto flex flex-col gap-6">
+        <header className="flex flex-wrap gap-4 justify-between items-center bg-white p-6 rounded-sm polaroid-shadow border border-kraft/30">
           <div>
-            <h1 className="font-cursive text-4xl md:text-5xl text-crimson font-bold">Admin Dashboard</h1>
-            <p className="font-sans text-sm text-on-surface-variant">
-              Total Visitors: <strong>{visitors.length}</strong>
-            </p>
-          </div>
-          <div className="flex flex-col items-end gap-2">
-            <div className="flex gap-2">
-              <button onClick={load} className="font-sans text-sm font-semibold px-4 py-2 border-2 border-crimson text-crimson rounded-sm hover:bg-crimson hover:text-cream transition-colors cursor-pointer">
-                Refresh
-              </button>
-              <button onClick={handleLogout} className="font-sans text-sm font-semibold px-4 py-2 border-2 border-kraft text-kraft rounded-sm hover:bg-kraft hover:text-white transition-colors cursor-pointer">
-                Log out
-              </button>
+            <div className="flex items-center gap-3">
+              <h1 className="font-cursive text-4xl md:text-5xl text-crimson font-bold">Admin Dashboard</h1>
+              {isLive ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  Live
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300">
+                  <AlertTriangle className="w-3 h-3 text-amber-600" />
+                  Connecting…
+                </span>
+              )}
             </div>
-            <StatusBadge status={liveStatus} lastUpdated={lastUpdated} />
+
+            <div className="flex flex-wrap gap-4 text-xs font-sans text-on-surface-variant mt-2">
+              <span>
+                Total Visitors: <strong>{visitors?.length ?? '—'}</strong>
+              </span>
+              {lastUpdated && <span>Last updated: <strong>{lastUpdated}</strong></span>}
+              <span className="text-kraft">● Polling interval: 6s</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => fetchVisitors(true)}
+              disabled={isRefreshing}
+              className="inline-flex items-center gap-1.5 font-sans text-xs font-semibold px-3.5 py-2 border border-crimson text-crimson rounded-sm hover:bg-crimson hover:text-cream transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+            <button
+              onClick={logout}
+              className="inline-flex items-center gap-1.5 font-sans text-xs font-semibold px-3.5 py-2 border border-kraft text-kraft rounded-sm hover:bg-kraft hover:text-white transition-colors cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              Sign out
+            </button>
           </div>
         </header>
 
-        {newVisitor && (
-          <div role="status" className="flex items-center gap-2 font-sans text-sm text-emerald-900 bg-emerald-50 border border-emerald-300/60 rounded-sm px-3 py-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block" />
-            New visitor received: <strong>{newVisitor}</strong>
+        {error && (
+          <div role="alert" className="font-sans text-xs text-dark-red bg-blush/30 border border-dark-red/30 rounded-sm px-4 py-3 flex items-center justify-between">
+            <span>{error}</span>
+            <button onClick={() => fetchVisitors(true)} className="underline font-semibold ml-2">Retry</button>
           </div>
         )}
 
-        {loadingError && (
-          <p role="alert" className="font-sans text-sm text-dark-red bg-blush/30 border border-dark-red/30 rounded-sm px-3 py-2">
-            {loadingError} — retrying automatically.
-          </p>
+        {visitors === null && !error && (
+          <div className="bg-white p-8 rounded-sm polaroid-shadow text-center font-serif text-on-surface-variant">
+            Connecting to Vercel Serverless Function & persistent database…
+          </div>
         )}
 
-        {authState === 'authed' && liveStatus === 'loading' && visitors.length === 0 && (
-          <p className="font-serif text-on-surface-variant bg-white p-6 rounded-sm polaroid-shadow">Loading visitors…</p>
+        {visitors?.length === 0 && !error && (
+          <div className="bg-white p-8 rounded-sm polaroid-shadow text-center">
+            <p className="font-serif text-charcoal font-semibold text-lg">No visitor records yet.</p>
+            <p className="font-sans text-xs text-on-surface-variant mt-1">
+              Visitors will appear here in real time as they complete location check-in.
+            </p>
+          </div>
         )}
 
-        {authState === 'authed' && liveStatus !== 'loading' && visitors.length === 0 && (
-          <p className="font-serif text-on-surface-variant bg-white p-6 rounded-sm polaroid-shadow">
-            No visitor records yet.
-          </p>
-        )}
-
-        {visitors.length > 0 && (
-          <div className="bg-white polaroid-shadow rounded-sm overflow-x-auto">
+        {!!visitors?.length && (
+          <div className="bg-white polaroid-shadow rounded-sm overflow-x-auto border border-kraft/20">
             <table className="w-full text-left font-sans text-sm">
-              <thead className="bg-[#FAF0E6] text-kraft uppercase text-xs tracking-widest">
+              <thead className="bg-[#FAF0E6] text-kraft uppercase text-xs tracking-widest border-b border-kraft/30">
                 <tr>
+                  <th className="px-4 py-3">#</th>
                   <th className="px-4 py-3">Nickname</th>
                   <th className="px-4 py-3">Coordinates</th>
                   <th className="px-4 py-3">Accuracy</th>
                   <th className="px-4 py-3">Address / Area</th>
-                  <th className="px-4 py-3">Visited</th>
-                  <th className="px-4 py-3" />
+                  <th className="px-4 py-3">Registered At</th>
+                  <th className="px-4 py-3 text-right">Map</th>
                 </tr>
               </thead>
               <tbody>
-                {visitors.map((v) => (
-                  <tr key={v.id} className="border-t border-kraft/20">
-                    <td className="px-4 py-3 font-semibold text-charcoal">{v.nickname}</td>
-                    <td className="px-4 py-3 font-mono text-xs">
-                      {v.latitude.toFixed(4)}, {v.longitude.toFixed(4)}
+                {visitors.map((v, index) => (
+                  <tr key={v.id} className="border-t border-kraft/15 hover:bg-cream/40 transition-colors">
+                    <td className="px-4 py-3 text-xs text-on-surface-variant/70 font-mono">
+                      {visitors.length - index}
+                    </td>
+                    <td className="px-4 py-3 font-semibold text-charcoal flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      {v.nickname}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-charcoal">
+                      {Number(v.latitude).toFixed(4)}, {Number(v.longitude).toFixed(4)}
                     </td>
                     <td className="px-4 py-3 text-xs">
                       {v.accuracy != null ? (
                         <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px]">
-                          ±{v.accuracy}m
+                          ±{Math.round(v.accuracy)}m
                         </span>
                       ) : (
-                        <span className="text-on-surface-variant/60">—</span>
+                        <span className="text-on-surface-variant/50">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-xs text-charcoal max-w-[200px] truncate" title={v.address || ''}>
-                      {v.city && v.country
-                        ? `${v.city}, ${v.country}`
-                        : v.address || <span className="text-on-surface-variant/60">—</span>}
+                    <td className="px-4 py-3 text-xs text-charcoal max-w-[240px]" title={v.address || ''}>
+                      {v.area || v.city ? (
+                        <div>
+                          <div className="font-semibold text-charcoal truncate">
+                            {[v.area, v.city].filter(Boolean).join(', ')}
+                          </div>
+                          {v.country && (
+                            <div className="text-[11px] text-on-surface-variant truncate">
+                              {[v.state, v.country].filter(Boolean).join(', ')}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-on-surface-variant/60 truncate block">{v.address || '—'}</span>
+                      )}
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-xs text-on-surface-variant" title="Registration time">
-                      {formatVisitedTime(v.createdAt)}
+                    <td className="px-4 py-3 whitespace-nowrap text-xs text-on-surface-variant font-mono">
+                      {new Date(v.createdAt).toLocaleString()}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 text-right">
                       <a
                         href={`https://www.google.com/maps?q=${v.latitude},${v.longitude}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="font-semibold text-crimson underline whitespace-nowrap hover:text-dark-red text-xs"
+                        className="inline-flex items-center gap-1 font-semibold text-crimson hover:underline text-xs"
                       >
-                        View Map
+                        <MapPin className="w-3.5 h-3.5" />
+                        View
                       </a>
                     </td>
                   </tr>
