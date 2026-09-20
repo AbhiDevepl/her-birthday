@@ -1,12 +1,9 @@
 import type { IncomingMessage } from 'node:http';
 import {
-  ensureSchema,
   findRecentDuplicate,
   getVisitorById,
   insertVisitor,
   enrichAddress,
-  isStorageConfigured,
-  StorageNotConfiguredError,
   listVisitors,
 } from './lib/db';
 import { reverseGeocode } from './lib/geocode';
@@ -27,23 +24,6 @@ export default async function handler(req: any, res: any) {
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
     res.end();
-    return;
-  }
-
-  if (!isStorageConfigured()) {
-    res.statusCode = 503;
-    res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({ error: new StorageNotConfiguredError().message }));
-    return;
-  }
-
-  try {
-    await ensureSchema();
-  } catch (err: any) {
-    console.error('[visitors] schema init failed:', err);
-    res.statusCode = 500;
-    res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({ error: 'Failed to initialize storage.' }));
     return;
   }
 
@@ -137,12 +117,6 @@ export default async function handler(req: any, res: any) {
       res.end(JSON.stringify({ ok: true, visitor: visitorToReturn }));
       return;
     } catch (err: any) {
-      if (err instanceof StorageNotConfiguredError) {
-        res.statusCode = 503;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ error: err.message }));
-        return;
-      }
       console.error('[visitors] POST failed:', err);
       res.statusCode = 500;
       res.setHeader('Content-Type', 'application/json');
@@ -159,12 +133,6 @@ export default async function handler(req: any, res: any) {
       res.end(JSON.stringify({ visitors }));
       return;
     } catch (err: any) {
-      if (err instanceof StorageNotConfiguredError) {
-        res.statusCode = 503;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ error: err.message }));
-        return;
-      }
       console.error('[visitors] GET failed:', err);
       res.statusCode = 500;
       res.setHeader('Content-Type', 'application/json');

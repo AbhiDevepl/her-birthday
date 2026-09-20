@@ -1,10 +1,5 @@
 import { isRequestAdmin } from '../lib/auth';
-import {
-  ensureSchema,
-  isStorageConfigured,
-  listVisitors,
-  StorageNotConfiguredError,
-} from '../lib/db';
+import { listVisitors } from '../lib/db';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -27,19 +22,10 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    if (!isStorageConfigured()) {
-      throw new StorageNotConfiguredError();
-    }
-    await ensureSchema();
     const visitors = await listVisitors();
     res.statusCode = 200;
     res.end(JSON.stringify({ visitors }));
   } catch (err: any) {
-    if (err instanceof StorageNotConfiguredError) {
-      res.statusCode = 503;
-      res.end(JSON.stringify({ error: err.message }));
-      return;
-    }
     console.error('[admin/visitors] failed:', err);
     res.statusCode = 500;
     res.end(JSON.stringify({ error: 'Failed to load visitors' }));

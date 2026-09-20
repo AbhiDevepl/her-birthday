@@ -4,7 +4,7 @@ Vintage birthday scrapbook (React + Vite frontend, Express/TS backend). Visitors
 
 ## Commands
 
-- Install: `bun install` (ships `bun.lock`; no package-lock). `npm run dev` is `tsx server.ts` — the ONLY local dev path (Express on `:3000` embedding Vite middleware). Runtime deps also include `postgres` (used ONLY by the Vercel `api/*` functions).
+- Install: `bun install` (ships `bun.lock`; no package-lock). `npm run dev` is `tsx server.ts` — the ONLY local dev path (Express on `:3000` embedding Vite middleware). No external DB runtime deps: storage is SQLite (`node:sqlite`).
 - Lint/typecheck: `npm run lint` (`tsc --noEmit`). No test framework exists.
 - Build: `npm run build` = `vite build` (→ `dist/`) + esbuild bundles `server.ts` → `dist/server.cjs`. Run prod build with `NODE_ENV=production npm start`: server.ts only serves `dist/` statically when `NODE_ENV=production` is set (server.ts:431); otherwise it falls into the Vite-middleware branch. `npm run preview` is `vite preview` (static, no API).
 
@@ -13,15 +13,16 @@ Vintage birthday scrapbook (React + Vite frontend, Express/TS backend). Visitors
 Frontend calls the same `/api/*` paths against whichever backend serves them — `server.ts` locally, Vercel functions in production. They are NOT in sync; edit both in parallel:
 
 - `server.ts` — full-featured Express app: HMAC-signed `admin_session` cookie, persists visitors. Routes: `/api/health`, `/api/reverse-geocode`, `POST /api/visitors`, `/api/admin/{login,logout,me,visitors}`. `POST /api/visitors` saves first, reverse-geocodes afterwards, and returns `{ ok, visitor }` (the persisted row incl. `id`).
-- `api/*.ts` — Vercel serverless functions, kept roughly in sync via shared modules: `api/lib/auth.ts` (HMAC session, mirrors server.ts), `api/lib/db.ts` (persistent Postgres via `postgres` pkg), `api/lib/geocode.ts`, `api/lib/types.ts`. `api/admin/me.ts` exists. Shared behavior contract: `POST /api/visitors` → `201 {ok,visitor}`; `/api/admin/*` require the HMAC cookie; admin responses set `Cache-Control: no-store`.
+- `api/*.ts` — Vercel serverless functions, kept roughly in sync via shared modules: `api/lib/auth.ts` (HMAC session, mirrors server.ts), `api/lib/db.ts` (SQLite via `node:sqlite`, seeded from the repo's `data.db`), `api/lib/geocode.ts`, `api/lib/types.ts`. `api/admin/me.ts` exists. Shared behavior contract: `POST /api/visitors` → `201 {ok,visitor}`; `/api/admin/*` require the HMAC cookie; admin responses set `Cache-Control: no-store`.
 
 Note: `AdminDashboard` authenticates via `/api/admin/me` and polls `/api/admin/visitors` every 5 s. Both backends must behave identically — if you change one, mirror the other.
 
 ## Storage
 
-- `server.ts` persists to SQLite at repo root: `data.db` via `node:sqlite` `DatabaseSync` (requires Node ≥ 22.5). It is committed to git and NOT gitignored — expect `data.db` diffs from local testing. Only `server.ts` writes it.
-- `data/visitors.json` is legacy test data: auto-migrated into `data.db` once, only if the table is empty (server.ts:62). `data.db` is the local source of truth.
-- Local/VPS: `data.db`. Vercel: external Postgres only — `api/lib/db.ts` connects when `POSTGRES_URL` (Vercel Postgres/Neon) or `DATABASE_URL` is set. If neither is set, the Vercel API returns an explicit `503` "storage not configured" instead of faking persistence (no in-memory fallback). Vercel deployment needs that env var; `data.db` is NOT persistent serverless storage.
+- Both backends use the SAME SQLite schema, keyed off `data.db`:
+  - Local/VPS: `server.ts` opens the repo's `data.db` directly (writable, durable).
+  - Vercel: serverless filesystems are read-only, so `api/lib/db.ts` copies the committed `data.db` into a writable `/tmp/vercel-data.db` on each cold start and opens it with `node:sqlite`. Writes persist only for that function instance's lifetime; a fresh instance re-seeds from the committed `data.db` again. If `node:sqlite` is unavailable it falls back to in-memory storage — the API NEVER 503s. `vercel.json` pins runtime `nodejs22.x` and bundles `data.db` + `data/visitors.json` via `functions.includeFiles`. No env vars are required to deploy.
+- `data/visitors.json` is legacy test data: auto-migrated into the SQLite table once, only if the table is empty (server.ts:62, and mirrored in `api/lib/db.ts`).
 - `server.ts` blocks direct HTTP requests to `*.db` / `*.sqlite` (server.ts:221).
 
 ## Deploy
