@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -471,6 +471,19 @@ async function startServer() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  // Central error handler: log any uncaught error server-side and return a
+  // JSON body so a failure is never a silent `500 ()`.
+  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+    console.error('[SERVER] Unhandled error on /api:', err);
+    if (res.headersSent) {
+      return;
+    }
+    res.status(500).json({
+      error: 'Internal server error',
+      detail: err?.message ? String(err.message) : String(err),
+    });
+  });
 
   app.listen(PORT, HOST, () => {
     console.log(`Server running at http://${HOST}:${PORT}`);
