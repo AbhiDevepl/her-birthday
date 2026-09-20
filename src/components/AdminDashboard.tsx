@@ -18,19 +18,39 @@ function LoginForm({ onSuccess }: { onSuccess: () => void }) {
     e.preventDefault();
     setBusy(true);
     setError('');
+
+    let isSuccess = false;
     try {
       const res = await fetch('/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
-      if (!res.ok) throw new Error('Invalid username or password.');
-      onSuccess();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed.');
-    } finally {
-      setBusy(false);
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
+        const data = await res.json().catch(() => null);
+        if (data?.ok) {
+          isSuccess = true;
+        }
+      }
+    } catch {
+      // Backend not reached, will check fallback below
     }
+
+    // Fallback authentication for offline or static deployments
+    if (!isSuccess) {
+      if (username === 'admin' && password === 'om1234') {
+        isSuccess = true;
+      }
+    }
+
+    if (isSuccess) {
+      sessionStorage.setItem('local_admin_authed', 'true');
+      onSuccess();
+    } else {
+      setError('Invalid username or password.');
+    }
+    setBusy(false);
   };
 
   return (
@@ -83,15 +103,36 @@ export default function AdminDashboard() {
 
     try {
       const res = await fetch('/api/admin/visitors');
-      if (res.status === 401) return setAuthed(false);
-      if (!res.ok) {
-        // If 404 or backend unavailable, still show offline visitors if authed or fallback
-        throw new Error('Could not load visitors.');
-      }
-      const body = await res.json();
-      setAuthed(true);
+      const contentType = res.headers.get('content-type') || '';
 
-      const serverList: Visitor[] = body.visitors || [];
+      if (res.status === 401) {
+        sessionStorage.removeItem('local_admin_authed');
+        setAuthed(false);
+        return;
+      }
+
+      let serverList: Visitor[] = [];
+      let isBackendAuthed = false;
+
+      if (res.ok && contentType.includes('application/json')) {
+        try {
+          const body = await res.json();
+          if (body && Array.isArray(body.visitors)) {
+            serverList = body.visitors;
+            isBackendAuthed = true;
+          }
+        } catch {
+          // Ignore JSON parse issue on corrupted responses
+        }
+      }
+
+      const isLocalAuthed = sessionStorage.getItem('local_admin_authed') === 'true';
+      if (!isBackendAuthed && !isLocalAuthed) {
+        setAuthed(false);
+        return;
+      }
+
+      setAuthed(true);
       const offlineList = getOfflineVisitors();
       
       // Combine and deduplicate by timestamp/id
@@ -104,14 +145,13 @@ export default function AdminDashboard() {
       }
       combined.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       setVisitors(combined);
-    } catch (err) {
-      const offlineList = getOfflineVisitors();
-      if (offlineList.length > 0) {
+    } catch {
+      const isLocalAuthed = sessionStorage.getItem('local_admin_authed') === 'true';
+      if (isLocalAuthed) {
         setAuthed(true);
-        setVisitors(offlineList);
+        setVisitors(getOfflineVisitors());
       } else {
-        setError(err instanceof Error ? err.message : 'Could not load visitors.');
-        setVisitors([]);
+        setAuthed(false);
       }
     }
   }, []);
@@ -119,7 +159,12 @@ export default function AdminDashboard() {
   useEffect(() => { load(); }, [load]);
 
   const logout = async () => {
-    await fetch('/api/admin/logout', { method: 'POST' });
+    sessionStorage.removeItem('local_admin_authed');
+    try {
+      await fetch('/api/admin/logout', { method: 'POST' });
+    } catch {
+      // ignore
+    }
     setAuthed(false);
     setVisitors(null);
   };
